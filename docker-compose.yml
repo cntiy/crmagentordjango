@@ -4,16 +4,23 @@ services:
   web:
     build: .
     container_name: crm_lead_web
-    restart: always
+    restart: unless-stopped
     ports:
       - "8000:8000"
-    environment:
-      - DJANGO_SETTINGS_MODULE=crm_lead.settings
+    env_file:
+      - .env
     volumes:
       - ./db.sqlite3:/app/db.sqlite3
-    command: python manage.py runserver 0.0.0.0:8000
     networks:
       - pyq_mysql_prod_default
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: "1.0"
 
 networks:
   pyq_mysql_prod_default:
