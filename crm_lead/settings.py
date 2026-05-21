@@ -95,8 +95,8 @@ DATABASES = {
         'NAME': 'crm_data',
         'USER': 'root',
         'PASSWORD': 'Ccc13858623844!',
-        'HOST': '120.79.141.196',
-        'PORT': '4406',
+        'HOST': 'pyq_mysql',
+        'PORT': '3306',
         'OPTIONS': {
             'charset': 'utf8mb4',
         },

@@ -12,3 +12,9 @@ services:
     volumes:
       - ./db.sqlite3:/app/db.sqlite3
     command: python manage.py runserver 0.0.0.0:8000
+    networks:
+      - pyq_mysql_prod_default
+
+networks:
+  pyq_mysql_prod_default:
+    external: true
