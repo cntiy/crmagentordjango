@@ -3,3 +3,4 @@ djangorestframework==3.17.1
 httpx==0.28.1
 mysqlclient==2.2.8
 gunicorn==23.0.0
+python-dotenv==1.0.1
