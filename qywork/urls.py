@@ -1,0 +1,10 @@
+from django.urls import path
+
+from . import views
+
+urlpatterns = [
+    path("", views.index),
+    path("WW_verify_lKNYL5JBAI1lduZs.txt", views.verify_domain),
+    path("api/contact", views.api_contact),
+    path("api/groupchat", views.api_groupchat),
+]

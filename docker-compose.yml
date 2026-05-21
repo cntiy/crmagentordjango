@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    container_name: crm_lead_web
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - DJANGO_SETTINGS_MODULE=crm_lead.settings
+    volumes:
+      - ./db.sqlite3:/app/db.sqlite3
+    command: python manage.py runserver 0.0.0.0:8000
