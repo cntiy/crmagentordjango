@@ -16,6 +16,10 @@ from .models import UserInfo, CrmLeads
 from .services import get_access_token, get_agent_ticket
 
 
+# 超级管理员企微 userid（可查看所有线索）
+SUPER_USERS = {'13510088891', 'Qi', 'yingxiaoxiaozu'}
+
+
 def rand_str(n=16):
     return "".join(random.choices(string.ascii_lowercase + string.digits, k=n))
 
@@ -107,6 +111,20 @@ def index(request):
         user_name = userid
         crm_user_id = ''
 
+    # 权限标识（超管 / 主管 / 普通员工）
+    is_super = userid in SUPER_USERS
+    is_manager = False
+    try:
+        ui = UserInfo.objects.get(qw_id=userid)
+        is_manager = (ui.position == 2)
+    except UserInfo.DoesNotExist:
+        pass
+
+    if is_super:
+        user_name = f"{user_name}（全部）"
+    elif is_manager:
+        user_name = f"{user_name}（主管）"
+
     # 测试模式下加载所有员工供切换
     all_users = []
     if debug_mode:
@@ -116,6 +134,7 @@ def index(request):
         'userid': userid,
         'user_name': user_name,
         'debug_mode': debug_mode,
+        'is_super': is_super,
         'all_users': all_users,
         'corp_id': corp_id,
         'agent_id': agent_id,
@@ -125,8 +144,38 @@ def index(request):
     })
 
 
+def _resolve_visible_crm_ids(userid):
+    """
+    返回 (是否超管, 可见的 crm_user_id 列表 或 None=全部, 错误信息)
+    - 超管 → 全部线索（返回 None）
+    - 主管(position=2) → 同部门所有员工的 crm_user_id
+    - 普通员工 → 仅自己的 crm_user_id
+    """
+    if userid in SUPER_USERS:
+        return True, None, None
+
+    try:
+        user_info = UserInfo.objects.get(qw_id=userid)
+    except UserInfo.DoesNotExist:
+        return False, [], f'未找到企微用户 {userid}'
+
+    if not user_info.crm_user_id:
+        return False, [], '该用户未关联 CRM 账号'
+
+    if user_info.position == 2 and user_info.department:
+        crm_ids = list(
+            UserInfo.objects.filter(department=user_info.department)
+            .exclude(crm_user_id__isnull=True)
+            .exclude(crm_user_id='')
+            .values_list('crm_user_id', flat=True)
+        )
+        return False, crm_ids, None
+
+    return False, [user_info.crm_user_id], None
+
+
 def api_leads(request):
-    """根据企微 userid 返回该销售负责的 CRM 线索"""
+    """根据企微 userid 返回该用户可见的 CRM 线索"""
     userid = request.GET.get('userid', '')
     stage_filter = request.GET.get('stage', '')
     keyword = request.GET.get('keyword', '').strip()
@@ -134,18 +183,19 @@ def api_leads(request):
     if not userid:
         return JsonResponse({'error': '缺少 userid 参数'}, status=400)
 
-    # 查企微 userid → crm_user_id
-    try:
-        user_info = UserInfo.objects.get(qw_id=userid)
-        crm_user_id = user_info.crm_user_id
-    except UserInfo.DoesNotExist:
-        return JsonResponse({'error': f'未找到企微用户 {userid}', 'leads': [], 'total': 0, 'active': 0, 'new_this_month': 0})
+    is_super, visible_crm_ids, err = _resolve_visible_crm_ids(userid)
+    if err:
+        return JsonResponse({'error': err, 'leads': [], 'total': 0, 'active': 0, 'new_this_month': 0})
 
-    if not crm_user_id:
-        return JsonResponse({'error': '该用户未关联 CRM 账号', 'leads': [], 'total': 0, 'active': 0, 'new_this_month': 0})
+    # 构造可见线索范围
+    if is_super or visible_crm_ids is None:
+        base_qs = CrmLeads.objects.using('crm').filter(is_deleted=0)
+    else:
+        base_qs = CrmLeads.objects.using('crm').filter(
+            owner_primary__in=visible_crm_ids, is_deleted=0
+        )
 
-    # 查该销售负责的线索（owner_primary 为 crm_user_id）
-    qs = CrmLeads.objects.using('crm').filter(owner_primary=crm_user_id, is_deleted=0)
+    qs = base_qs
 
     # Tab 阶段过滤
     if stage_filter == 'following':
@@ -164,28 +214,36 @@ def api_leads(request):
             Q(tel__icontains=keyword)
         )
 
-    # 统计数据（用原始全量 qs，不受 tab/keyword 过滤）
-    base_qs = CrmLeads.objects.using('crm').filter(owner_primary=crm_user_id, is_deleted=0)
+    # 统计
     total = base_qs.count()
     active = base_qs.exclude(leads_stage__in=['returned', 'lost', 'deal_done']).count()
-
     now = timezone.now()
     new_this_month = base_qs.filter(
         row_created_at__year=now.year,
         row_created_at__month=now.month
     ).count()
 
-    # 取最多 200 条，按最后更新时间排序
+    # 取最多 200 条
     leads = list(qs.order_by('-row_updated_at')[:200].values(
         'id', 'name', 'mobile', 'tel', 'company',
         'leads_stage', 'leads_stage_label',
         'customer_stage', 'customer_stage_label',
         'biz_status_label', 'life_status_label',
-        'last_follow_time', 'create_time', 'row_updated_at'
+        'last_follow_time', 'create_time', 'row_updated_at',
+        'owner_primary',
     ))
 
-    # datetime 序列化
+    # 批量补 owner 姓名（避免 N+1）
+    owner_ids = {l['owner_primary'] for l in leads if l.get('owner_primary')}
+    owner_map = {}
+    if owner_ids:
+        owner_map = dict(
+            UserInfo.objects.filter(crm_user_id__in=owner_ids)
+            .values_list('crm_user_id', 'name')
+        )
+
     for lead in leads:
+        lead['owner_name'] = owner_map.get(lead.get('owner_primary'), '') or ''
         for k, v in lead.items():
             if hasattr(v, 'isoformat'):
                 lead[k] = v.isoformat()
@@ -196,6 +254,48 @@ def api_leads(request):
         'new_this_month': new_this_month,
         'leads': leads,
     })
+
+
+def api_lead_detail(request):
+    """线索详情，需做权限校验"""
+    userid = request.GET.get('userid', '')
+    lead_id = request.GET.get('id', '')
+
+    if not userid or not lead_id:
+        return JsonResponse({'error': '缺少参数'}, status=400)
+
+    is_super, visible_crm_ids, err = _resolve_visible_crm_ids(userid)
+    if err:
+        return JsonResponse({'error': err}, status=403)
+
+    try:
+        lead = CrmLeads.objects.using('crm').get(id=lead_id, is_deleted=0)
+    except CrmLeads.DoesNotExist:
+        return JsonResponse({'error': '线索不存在'}, status=404)
+
+    # 非超管要校验线索归属
+    if not is_super and visible_crm_ids is not None:
+        if lead.owner_primary not in visible_crm_ids:
+            return JsonResponse({'error': '无权查看此线索'}, status=403)
+
+    # 收集所有要显示的字段（直接全量返回）
+    data = {}
+    for f in lead._meta.get_fields():
+        if not hasattr(f, 'attname'):
+            continue
+        v = getattr(lead, f.attname, None)
+        if hasattr(v, 'isoformat'):
+            v = v.isoformat()
+        data[f.attname] = v
+
+    # 补 owner 姓名
+    if lead.owner_primary:
+        owner = UserInfo.objects.filter(crm_user_id=lead.owner_primary).first()
+        data['owner_name'] = owner.name if owner else ''
+    else:
+        data['owner_name'] = ''
+
+    return JsonResponse({'lead': data})
 
 
 def api_users(request):

@@ -21,14 +21,31 @@
         .search-bar input:focus { border-color: #1677ff; }
 
         .leads-list { padding: 8px 12px; }
-        .lead-card { background: #fff; border-radius: 8px; padding: 12px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+        .lead-card { background: #fff; border-radius: 8px; padding: 12px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); cursor: pointer; transition: transform 0.1s; }
+        .lead-card:active { transform: scale(0.98); }
         .lead-card .name-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
         .lead-card .name { font-size: 15px; font-weight: 600; }
         .lead-card .stage-tag { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #e6f4ff; color: #1677ff; }
         .lead-card .stage-tag.won { background: #f6ffed; color: #52c41a; }
         .lead-card .stage-tag.lost { background: #fff2f0; color: #ff4d4f; }
-        .lead-card .info-row { font-size: 12px; color: #888; margin-top: 4px; display: flex; gap: 12px; }
+        .lead-card .info-row { font-size: 12px; color: #888; margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; }
         .lead-card .company { font-size: 13px; color: #555; margin-bottom: 4px; }
+        .lead-card .owner { font-size: 11px; color: #1677ff; background: #f0f7ff; padding: 1px 6px; border-radius: 8px; }
+
+        /* 详情弹窗 */
+        .modal-mask { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100; }
+        .modal-mask.show { display: block; }
+        .modal { position: fixed; left: 0; right: 0; bottom: 0; top: 10%; background: #fff; border-radius: 12px 12px 0 0; z-index: 101; display: none; flex-direction: column; }
+        .modal.show { display: flex; }
+        .modal-header { padding: 14px 16px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }
+        .modal-title { font-size: 16px; font-weight: 600; }
+        .modal-close { background: none; border: none; font-size: 22px; color: #999; cursor: pointer; }
+        .modal-body { flex: 1; overflow-y: auto; padding: 12px 16px; }
+        .detail-section { margin-bottom: 18px; }
+        .detail-section-title { font-size: 13px; color: #1677ff; font-weight: 600; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid #e6f4ff; }
+        .detail-row { display: flex; padding: 6px 0; font-size: 13px; border-bottom: 1px dashed #f5f5f5; }
+        .detail-label { width: 110px; color: #888; flex-shrink: 0; }
+        .detail-value { flex: 1; color: #333; word-break: break-all; }
 
         .empty { text-align: center; padding: 60px 20px; color: #bbb; }
         .empty svg { width: 48px; height: 48px; margin-bottom: 12px; opacity: 0.4; }
@@ -88,6 +105,18 @@
         <div class="loading">加载中...</div>
     </div>
 
+    <!-- 详情弹窗 -->
+    <div class="modal-mask" id="modal-mask" onclick="closeDetail()"></div>
+    <div class="modal" id="detail-modal">
+        <div class="modal-header">
+            <span class="modal-title" id="detail-title">线索详情</span>
+            <button class="modal-close" onclick="closeDetail()">×</button>
+        </div>
+        <div class="modal-body" id="detail-body">
+            <div class="loading">加载中...</div>
+        </div>
+    </div>
+
     <script>
     let currentUserid = '{{ userid }}';
     let currentStage = '';
@@ -114,8 +143,9 @@
         const stage = lead.leads_stage || '';
         const followTime = lead.last_follow_time ? lead.last_follow_time.slice(0, 10) : '';
         const createTime = lead.create_time ? lead.create_time.slice(0, 10) : '';
+        const ownerName = lead.owner_name || '';
         return `
-        <div class="lead-card">
+        <div class="lead-card" onclick="showDetail(${lead.id})">
             <div class="name-row">
                 <span class="name">${name}</span>
                 ${stageTag(stageLabel, stage)}
@@ -124,6 +154,7 @@
             <div class="info-row">
                 ${mobile ? `<span>📱 ${mobile}</span>` : ''}
                 ${followTime ? `<span>跟进: ${followTime}</span>` : createTime ? `<span>创建: ${createTime}</span>` : ''}
+                ${ownerName ? `<span class="owner">👤 ${ownerName}</span>` : ''}
             </div>
         </div>`;
     }
@@ -174,6 +205,141 @@
         clearTimeout(searchTimer);
         searchTimer = setTimeout(loadLeads, 400);
     });
+
+    // ===== 详情弹窗 =====
+    const DETAIL_SECTIONS = [
+        {
+            title: '基本信息',
+            fields: [
+                ['name', '姓名'], ['mobile', '手机'], ['tel', '电话'], ['email', '邮箱'],
+                ['wechat_id', '微信号'], ['wechat_nickname', '微信昵称'],
+                ['gender_label', '性别'], ['address', '地址'],
+            ],
+        },
+        {
+            title: '公司信息',
+            fields: [
+                ['company', '公司全称'], ['department', '部门'], ['job_title', '职位'],
+                ['main_business', '主营业务'], ['business_scope', '经营范围'],
+                ['register_capital', '注册资本'], ['paid_capital', '实缴资本'],
+                ['employee_count', '参保人数'], ['company_found_date', '企业成立时间'],
+            ],
+        },
+        {
+            title: '线索状态',
+            fields: [
+                ['leads_stage_label', '线索阶段'], ['life_status_label', '生命状态'],
+                ['biz_status_label', '业务状态'], ['lock_status_label', '锁定状态'],
+                ['record_type_label', '业务类型'], ['customer_stage_label', '客户阶段'],
+                ['customer_type_label', '客户类型'], ['customer_quality_label', '客户质量'],
+            ],
+        },
+        {
+            title: '来源',
+            fields: [
+                ['origin_source_label', '来源系统'], ['source_label', '来源细分'],
+                ['promotion_channel_label', '推广渠道'],
+                ['industry_label', '渠道行业'], ['industry_status_label', '行业地位'],
+            ],
+        },
+        {
+            title: '终端客户',
+            fields: [
+                ['terminal_customer_name', '终端客户名称'],
+                ['terminal_customer_type_label', '终端类型'],
+                ['terminal_customer_location', '所在地'],
+                ['terminal_industry_label', '终端行业'],
+                ['terminal_main_business', '主营业务'],
+                ['terminal_register_capital', '注册资本'],
+            ],
+        },
+        {
+            title: '负责人 & 时间',
+            fields: [
+                ['owner_name', '负责人'],
+                ['create_time', 'CRM创建时间'],
+                ['last_modified_time', '最后修改'],
+                ['last_follow_time', '最后跟进'],
+                ['next_followed_time', '下次跟进'],
+                ['assigned_time', '领取时间'],
+                ['transform_time', '转化时间'],
+            ],
+        },
+        {
+            title: '成交',
+            fields: [
+                ['first_deal_amount', '首次成交金额'],
+                ['first_deal_time', '首次成交时间'],
+                ['deal_cycle', '成交周期'],
+            ],
+        },
+        {
+            title: '其他',
+            fields: [
+                ['remark', '备注'],
+                ['url', 'URL'],
+                ['qixinbao_url', '启信宝'],
+            ],
+        },
+    ];
+
+    function fmtVal(v) {
+        if (v === null || v === undefined || v === '') return '-';
+        if (typeof v === 'string' && v.length >= 19 && v[10] === 'T') {
+            return v.slice(0, 19).replace('T', ' ');
+        }
+        if (Array.isArray(v) || typeof v === 'object') {
+            return JSON.stringify(v);
+        }
+        return String(v);
+    }
+
+    function showDetail(leadId) {
+        document.getElementById('modal-mask').classList.add('show');
+        document.getElementById('detail-modal').classList.add('show');
+        document.getElementById('detail-body').innerHTML = '<div class="loading">加载中...</div>';
+
+        fetch(`/api/lead/detail?userid=${encodeURIComponent(currentUserid)}&id=${leadId}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    document.getElementById('detail-body').innerHTML = `<div class="empty"><p>⚠️ ${data.error}</p></div>`;
+                    return;
+                }
+                const lead = data.lead || {};
+                document.getElementById('detail-title').textContent = lead.name || '线索详情';
+
+                let html = '';
+                for (const sec of DETAIL_SECTIONS) {
+                    const rows = sec.fields
+                        .filter(([k]) => {
+                            const v = lead[k];
+                            return v !== null && v !== undefined && v !== '';
+                        })
+                        .map(([k, label]) => `
+                            <div class="detail-row">
+                                <div class="detail-label">${label}</div>
+                                <div class="detail-value">${fmtVal(lead[k])}</div>
+                            </div>
+                        `).join('');
+                    if (rows) {
+                        html += `<div class="detail-section">
+                            <div class="detail-section-title">${sec.title}</div>
+                            ${rows}
+                        </div>`;
+                    }
+                }
+                document.getElementById('detail-body').innerHTML = html || '<div class="empty"><p>暂无更多信息</p></div>';
+            })
+            .catch(() => {
+                document.getElementById('detail-body').innerHTML = '<div class="empty"><p>加载失败</p></div>';
+            });
+    }
+
+    function closeDetail() {
+        document.getElementById('modal-mask').classList.remove('show');
+        document.getElementById('detail-modal').classList.remove('show');
+    }
 
     loadLeads();
     </script>
