@@ -544,6 +544,16 @@ def api_match_lead(request):
       m2_leads  - 未绑定但匹配（仅个人）
       match_by  - 匹配依据描述
     """
+    import traceback
+    try:
+        return _api_match_lead_impl(request)
+    except Exception as e:
+        tb = traceback.format_exc()
+        print(f"\n[match ERROR] {e}\n{tb}")
+        return JsonResponse({'error': f'内部错误: {e}', 'trace': tb}, status=500)
+
+
+def _api_match_lead_impl(request):
     userid = request.GET.get('userid', '')
     external_userid = request.GET.get('external_userid', '')
     chat_id = request.GET.get('chat_id', '')
