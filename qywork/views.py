@@ -820,17 +820,20 @@ def api_lead_bindable(request):
     if not userid:
         return JsonResponse({'error': '缺少 userid'}, status=400)
 
-    # 只取自己负责的（crm_user_id），超管也只看自己（避免下拉过长）
-    try:
-        ui = UserInfo.objects.get(qw_id=userid)
-        own_crm_id = ui.crm_user_id or ''
-    except UserInfo.DoesNotExist:
-        return JsonResponse({'error': '未找到该用户'}, status=404)
+    # 超管可绑定所有线索；普通员工/主管只看自己负责的
+    if userid in SUPER_USERS:
+        qs = CrmLeads.objects.using('crm').filter(is_deleted=0)
+    else:
+        try:
+            ui = UserInfo.objects.get(qw_id=userid)
+            own_crm_id = ui.crm_user_id or ''
+        except UserInfo.DoesNotExist:
+            return JsonResponse({'error': '未找到该用户'}, status=404)
 
-    if not own_crm_id:
-        return JsonResponse({'leads': [], 'total': 0})
+        if not own_crm_id:
+            return JsonResponse({'leads': [], 'total': 0})
 
-    qs = CrmLeads.objects.using('crm').filter(owner_primary=own_crm_id, is_deleted=0)
+        qs = CrmLeads.objects.using('crm').filter(owner_primary=own_crm_id, is_deleted=0)
 
     # 排除已绑定到本会话的
     if session_id:
