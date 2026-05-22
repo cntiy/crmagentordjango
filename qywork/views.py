@@ -446,17 +446,17 @@ def _upsert_session(session_type: str, external_id: str, opener_userid: str,
     Upsert qw_session 表：
     - session_type: 'contact' | 'group'
     - external_id: external_userid 或 chat_id
+    注：mobile 不存表（QwSession 模型无此字段），仅用于运行时 contact 信息回传。
     """
     from django.utils import timezone as tz
     now = tz.now()
-    session, created = QwSession.objects.get_or_create(
+    session, created = QwSession.objects.using('crm').get_or_create(
         session_type=session_type,
         external_id=external_id,
         defaults={
             'name': name,
             'contact_type': contact_type,
             'corp_name': corp_name,
-            'mobile': mobile,
             'raw_info': raw_info or {},
             'first_opened_by': opener_userid,
             'last_opened_by': opener_userid,
@@ -472,16 +472,13 @@ def _upsert_session(session_type: str, external_id: str, opener_userid: str,
         if name and not session.name:
             session.name = name
             update_fields.append('name')
-        if mobile and not session.mobile:
-            session.mobile = mobile
-            update_fields.append('mobile')
         if corp_name and not session.corp_name:
             session.corp_name = corp_name
             update_fields.append('corp_name')
         if raw_info:
             session.raw_info = raw_info
             update_fields.append('raw_info')
-        session.save(update_fields=update_fields)
+        session.save(using='crm', update_fields=update_fields)
     return session
 
 
