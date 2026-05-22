@@ -92,7 +92,7 @@
 
     <div class="tabs">
         <div class="tab active" data-stage="">全部</div>
-        <div class="tab" data-stage="unassigned">未分配</div>
+        {% if is_super %}<div class="tab" data-stage="unassigned">未分配</div>{% endif %}
         <div class="tab" data-stage="new">待处理</div>
         <div class="tab" data-stage="following">跟进中</div>
         <div class="tab" data-stage="deal">已转换</div>
