@@ -12,8 +12,8 @@
         .header h1 { font-size: 16px; font-weight: 600; }
         .header .user { font-size: 12px; opacity: 0.85; }
 
-        .tabs { display: flex; background: #fff; border-bottom: 1px solid #e8e8e8; }
-        .tab { flex: 1; text-align: center; padding: 10px 0; font-size: 13px; color: #666; cursor: pointer; border-bottom: 2px solid transparent; }
+        .tabs { display: flex; background: #fff; border-bottom: 1px solid #e8e8e8; overflow-x: auto; }
+        .tab { flex-shrink: 0; text-align: center; padding: 10px 12px; font-size: 13px; color: #666; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
         .tab.active { color: #1677ff; border-bottom-color: #1677ff; font-weight: 500; }
 
         .search-bar { padding: 10px 12px; background: #fff; border-bottom: 1px solid #f0f0f0; }
@@ -25,12 +25,14 @@
         .lead-card:active { transform: scale(0.98); }
         .lead-card .name-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
         .lead-card .name { font-size: 15px; font-weight: 600; }
-        .lead-card .stage-tag { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #e6f4ff; color: #1677ff; }
+        .lead-card .stage-tag { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #e6f4ff; color: #1677ff; flex-shrink: 0; }
         .lead-card .stage-tag.won { background: #f6ffed; color: #52c41a; }
         .lead-card .stage-tag.lost { background: #fff2f0; color: #ff4d4f; }
-        .lead-card .info-row { font-size: 12px; color: #888; margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; }
+        .lead-card .info-row { font-size: 12px; color: #888; margin-top: 4px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
         .lead-card .company { font-size: 13px; color: #555; margin-bottom: 4px; }
         .lead-card .owner { font-size: 11px; color: #1677ff; background: #f0f7ff; padding: 1px 6px; border-radius: 8px; }
+        .bind-btn { font-size: 11px; padding: 3px 10px; background: #1677ff; color: #fff; border: none; border-radius: 10px; cursor: pointer; margin-left: auto; flex-shrink: 0; }
+        .bind-btn:active { opacity: 0.8; }
 
         /* 详情弹窗 */
         .modal-mask { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100; }
@@ -50,7 +52,6 @@
         .empty { text-align: center; padding: 60px 20px; color: #bbb; }
         .empty svg { width: 48px; height: 48px; margin-bottom: 12px; opacity: 0.4; }
         .empty p { font-size: 14px; }
-
         .loading { text-align: center; padding: 40px; color: #bbb; font-size: 14px; }
 
         .stats-bar { display: flex; background: #fff; padding: 10px 0; border-bottom: 1px solid #f0f0f0; }
@@ -58,34 +59,28 @@
         .stat-item .num { font-size: 18px; font-weight: 700; color: #1677ff; }
         .stat-item .label { font-size: 11px; color: #999; margin-top: 2px; }
 
-        /* 当前聊天匹配区 */
-        .match-bar { background: linear-gradient(90deg, #fff7e6, #fffbe6); border-bottom: 1px solid #ffe58f; padding: 10px 12px; }
-        .match-bar .title { font-size: 12px; color: #d48806; font-weight: 600; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
-        .match-bar .contact { font-size: 13px; color: #333; margin-bottom: 6px; }
-        .match-bar .empty-tip { font-size: 12px; color: #999; padding: 4px 0; }
-        .match-bar .matched-list .lead-card { margin-bottom: 6px; padding: 8px 10px; }
+        /* 匹配视图 */
+        .match-contact-bar { background: #fffbe6; border-bottom: 1px solid #ffe58f; padding: 8px 12px; font-size: 12px; color: #d48806; }
+        .match-contact-bar .contact-info { font-size: 13px; color: #333; margin-top: 3px; }
+        .match-section { margin-bottom: 4px; }
+        .match-section-title { font-size: 12px; font-weight: 600; padding: 8px 12px 6px; display: flex; align-items: center; gap: 4px; }
+        .match-section-title.m1 { color: #389e0d; background: #f6ffed; border-left: 3px solid #52c41a; }
+        .match-section-title.m2 { color: #d46b08; background: #fff7e6; border-left: 3px solid #fa8c16; }
+        .match-section-title.m3 { color: #0958d9; background: #e6f4ff; border-left: 3px solid #1677ff; }
+        .match-empty-tip { font-size: 12px; color: #bbb; padding: 6px 12px 8px; }
+        .match-tag { font-size: 10px; color: #999; font-weight: 400; margin-left: auto; }
+
+        /* M3 人工绑定面板 */
+        .m3-panel { padding: 8px 12px 14px; }
+        .m3-panel .hint { font-size: 12px; color: #999; margin-bottom: 7px; }
+        .m3-panel select { width: 100%; padding: 8px 10px; border: 1px solid #d9d9d9; border-radius: 6px; font-size: 13px; margin-bottom: 8px; outline: none; }
+        .m3-panel .confirm-btn { width: 100%; padding: 9px; background: #1677ff; color: #fff; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; }
+        .m3-panel .confirm-btn:disabled { background: #b0c8f5; cursor: default; }
 
         /* 测试用员工选择器 */
         .debug-bar { background: #fffbe6; border-bottom: 1px solid #ffe58f; padding: 8px 12px; font-size: 12px; color: #666; display: flex; align-items: center; gap: 8px; }
         .debug-bar select { font-size: 12px; padding: 3px 6px; border: 1px solid #d9d9d9; border-radius: 4px; }
         .debug-bar label { white-space: nowrap; }
-
-        /* 匹配三模块 */
-        .match-section { margin-bottom: 14px; }
-        .match-section h3 { font-size: 13px; color: #333; margin: 4px 4px 6px; display: flex; align-items: center; gap: 6px; }
-        .match-section h3 .badge { font-size: 11px; background: #1677ff; color: #fff; border-radius: 9px; padding: 1px 7px; font-weight: 500; }
-        .match-section h3 .badge.gray { background: #bfbfbf; }
-        .match-section h3 .badge.orange { background: #fa8c16; }
-        .match-section .empty-tip { font-size: 12px; color: #999; padding: 6px 4px; }
-        .lead-card .bind-btn { font-size: 11px; padding: 3px 10px; border: 1px solid #1677ff; color: #1677ff; background: #fff; border-radius: 4px; cursor: pointer; margin-left: 6px; }
-        .lead-card .bind-btn:hover { background: #1677ff; color: #fff; }
-        .lead-card .unbind-btn { font-size: 11px; padding: 3px 10px; border: 1px solid #ff4d4f; color: #ff4d4f; background: #fff; border-radius: 4px; cursor: pointer; margin-left: 6px; }
-        .manual-bind-box { background: #fff; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
-        .manual-bind-box select { width: 100%; padding: 6px 8px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 13px; margin-bottom: 8px; }
-        .manual-bind-box .actions { display: flex; gap: 8px; }
-        .manual-bind-box button { flex: 1; padding: 6px 0; font-size: 13px; border: none; border-radius: 4px; cursor: pointer; }
-        .manual-bind-box .confirm { background: #1677ff; color: #fff; }
-        .manual-bind-box .cancel { background: #f0f0f0; color: #666; }
     </style>
 </head>
 <body>
@@ -95,7 +90,6 @@
     </div>
 
     {% if debug_mode %}
-    <!-- 测试模式：可切换员工 -->
     <div class="debug-bar">
         <label>🔧 测试员工：</label>
         <select id="user-switcher" onchange="switchUser(this.value)">
@@ -114,9 +108,7 @@
         <div class="stat-item"><div class="num" id="stat-new">-</div><div class="label">本月新增</div></div>
     </div>
 
-    <!-- 当前聊天匹配区由 JS 控制，渲染到 leads-list 中（受 tab 切换） -->
-
-    <div class="tabs">
+    <div class="tabs" id="tabs-bar">
         <div class="tab" data-stage="match" id="tab-match" style="display:none;">📌 匹配</div>
         <div class="tab active" data-stage="">全部</div>
         {% if is_super %}<div class="tab" data-stage="unassigned">未分配</div>{% endif %}
@@ -126,7 +118,8 @@
         {% if is_manager %}<div class="tab" data-stage="mine">我负责的</div>{% endif %}
     </div>
 
-    <div class="search-bar">
+    <!-- 搜索栏（匹配视图隐藏）-->
+    <div class="search-bar" id="search-wrap">
         <input type="text" id="search-input" placeholder="搜索姓名、公司、手机号..." />
     </div>
 
@@ -152,10 +145,14 @@
     let currentUserid = '{{ userid }}';
     let currentStage = '';
     let searchTimer = null;
+    let matchData = null;   // 缓存最新的匹配接口返回
+    let m3Leads = [];       // M3 可绑定线索列表
 
-    function switchUser(newUserid) {
-        currentUserid = newUserid;
-        document.getElementById('user-label').textContent = document.getElementById('user-switcher').selectedOptions[0].text.split('（')[0];
+    function switchUser(uid) {
+        currentUserid = uid;
+        document.getElementById('user-label').textContent =
+            document.getElementById('user-switcher').selectedOptions[0].text.split('（')[0];
+        matchData = null;
         loadLeads();
     }
 
@@ -166,7 +163,8 @@
         return `<span class="${cls}">${label || '未知阶段'}</span>`;
     }
 
-    function renderCard(lead) {
+    // showBindBtn: true 时在 info-row 末尾显示绑定按钮
+    function renderCard(lead, showBindBtn) {
         const name = lead.name || '未知客户';
         const company = lead.company || '';
         const mobile = lead.mobile || lead.tel || '';
@@ -176,10 +174,12 @@
         const followTime = lead.last_follow_time ? lead.last_follow_time.slice(0, 10) : '';
         const createTime = lead.create_time ? lead.create_time.slice(0, 10) : '';
         const ownerName = lead.owner_name || '';
-        // 仅"跟进中"显示跟进日期，其它状态显示创建日期
         const dateLabel = (bizStatus === '跟进中' && followTime)
             ? `跟进: ${followTime}`
             : (createTime ? `创建: ${createTime}` : '');
+        const bindBtn = showBindBtn
+            ? `<button class="bind-btn" onclick="event.stopPropagation();bindLead(${lead.id})">绑定</button>`
+            : '';
         return `
         <div class="lead-card" onclick="showDetail(${lead.id})">
             <div class="name-row">
@@ -191,6 +191,7 @@
                 ${mobile ? `<span>📱 ${mobile}</span>` : ''}
                 ${dateLabel ? `<span>${dateLabel}</span>` : ''}
                 ${ownerName ? `<span class="owner">👤 ${ownerName}</span>` : ''}
+                ${bindBtn}
             </div>
         </div>`;
     }
@@ -200,22 +201,176 @@
         if (!leads.length) {
             container.innerHTML = `<div class="empty">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 17H7A5 5 0 017 7h1M15 7h1a5 5 0 010 10h-1M9 12h6"/></svg>
-                <p>暂无线索</p>
-            </div>`;
+                <p>暂无线索</p></div>`;
             return;
         }
-        container.innerHTML = leads.map(renderCard).join('');
+        container.innerHTML = leads.map(l => renderCard(l, false)).join('');
     }
 
-    function loadLeads() {
-        const keyword = document.getElementById('search-input').value.trim();
+    // ===== 匹配视图（三模块）=====
+    function renderMatchView() {
+        document.getElementById('search-wrap').style.display = 'none';
+        const container = document.getElementById('leads-list');
 
-        // 匹配视图：调用三模块渲染
+        if (!matchData) {
+            container.innerHTML = '<div class="empty"><p>未检测到当前聊天对象</p></div>';
+            return;
+        }
+
+        const c = matchData.contact || {};
+        const sType = matchData.session_type;
+        const m1 = matchData.m1_leads || [];
+        const m2 = matchData.m2_leads || [];
+
+        // 顶部联系人信息栏
+        let contactLine = '';
+        if (sType === 'contact') {
+            const tLabel = c.type === 2 ? '企微客户' : '个微客户';
+            contactLine = `${c.name || '未知'}` +
+                (c.corp_name ? ` · ${c.corp_name}` : '') +
+                (c.mobile ? ` · ${c.mobile}` : '') +
+                ` &nbsp;<span style="font-size:11px;color:#999;">${tLabel}</span>`;
+        } else {
+            contactLine = `群聊：${c.name || c.chat_id || '未知群'} &nbsp;` +
+                `<span style="font-size:11px;color:#999;">成员 ${c.member_count || 0} 人（外部 ${c.ext_member_count || 0}）</span>`;
+        }
+
+        const matchTagMap = {
+            'mobile': '手机号匹配',
+            'name+company': '姓名+公司匹配',
+            'name': '姓名匹配',
+            'group_member_sessions': '群成员线索继承',
+        };
+        const matchTag = matchTagMap[matchData.match_by] || '';
+
+        let html = `
+        <div class="match-contact-bar">
+            <div>📌 当前会话</div>
+            <div class="contact-info">${contactLine}</div>
+        </div>`;
+
+        // ── M1 已绑定线索 ──
+        html += `<div class="match-section">
+            <div class="match-section-title m1">
+                ✅ 已绑定线索
+                <span class="match-tag">${m1.length} 条</span>
+            </div>`;
+        if (m1.length) {
+            html += `<div style="padding:0 8px 4px;">${m1.map(l => renderCard(l, false)).join('')}</div>`;
+        } else {
+            html += `<div class="match-empty-tip">暂无已绑定线索</div>`;
+        }
+        html += `</div>`;
+
+        // ── M2 未绑定线索（仅个人会话）──
+        if (sType === 'contact') {
+            html += `<div class="match-section">
+                <div class="match-section-title m2">
+                    🔍 未绑定线索
+                    <span class="match-tag">${matchTag || (m2.length ? '' : '未找到匹配')}</span>
+                </div>`;
+            if (m2.length) {
+                html += `<div style="padding:0 8px 4px;">${m2.map(l => renderCard(l, true)).join('')}</div>`;
+            } else {
+                html += `<div class="match-empty-tip">CRM 中未找到可匹配的线索</div>`;
+            }
+            html += `</div>`;
+        }
+
+        // ── M3 人工绑定 ──
+        html += `<div class="match-section">
+            <div class="match-section-title m3">🔗 人工绑定线索</div>
+            <div class="m3-panel">
+                <div class="hint">从你负责的线索中选择，手动与当前会话绑定</div>
+                <select id="m3-select" onchange="document.getElementById('m3-btn').disabled=!this.value">
+                    <option value="">加载中...</option>
+                </select>
+                <button class="confirm-btn" id="m3-btn" disabled onclick="confirmM3Bind()">确认绑定</button>
+            </div>
+        </div>`;
+
+        container.innerHTML = html;
+        loadM3Leads();
+    }
+
+    function loadM3Leads() {
+        fetch(`/api/lead/bindable?userid=${encodeURIComponent(currentUserid)}`)
+            .then(r => r.json())
+            .then(data => {
+                m3Leads = data.leads || [];
+                const sel = document.getElementById('m3-select');
+                if (!sel) return;
+                if (!m3Leads.length) {
+                    sel.innerHTML = '<option value="">暂无可绑定线索</option>';
+                    return;
+                }
+                sel.innerHTML = '<option value="">请选择线索...</option>' +
+                    m3Leads.map(l => {
+                        const label = `${l.name || '未知'}${l.company ? ' - ' + l.company : ''}${l.biz_status_label ? ' [' + l.biz_status_label + ']' : ''}`;
+                        return `<option value="${l.id}">${label}</option>`;
+                    }).join('');
+            })
+            .catch(() => {
+                const sel = document.getElementById('m3-select');
+                if (sel) sel.innerHTML = '<option value="">加载失败，请重试</option>';
+            });
+    }
+
+    function confirmM3Bind() {
+        const sel = document.getElementById('m3-select');
+        if (!sel || !sel.value || !matchData) return;
+        bindLeadToSession(matchData.session_id, parseInt(sel.value), 'manual', () => {
+            alert('绑定成功！');
+            reloadMatchData();
+        });
+    }
+
+    function bindLead(leadId) {
+        if (!matchData) return;
+        bindLeadToSession(matchData.session_id, leadId, 'auto_match', () => {
+            alert('绑定成功！');
+            reloadMatchData();
+        });
+    }
+
+    function bindLeadToSession(sessionId, leadId, bindType, callback) {
+        fetch('/api/lead/bind', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                userid: currentUserid,
+                session_id: sessionId,
+                lead_id: leadId,
+                bind_type: bindType,
+            }),
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { alert('绑定失败：' + data.error); return; }
+            if (callback) callback();
+        })
+        .catch(() => alert('绑定请求失败，请重试'));
+    }
+
+    function reloadMatchData() {
+        if (!matchData) return;
+        const c = matchData.contact || {};
+        const url = matchData.session_type === 'contact'
+            ? `/api/lead/match?userid=${encodeURIComponent(currentUserid)}&external_userid=${encodeURIComponent(c.external_userid || '')}`
+            : `/api/lead/match?userid=${encodeURIComponent(currentUserid)}&chat_id=${encodeURIComponent(c.chat_id || '')}`;
+        fetch(url)
+            .then(r => r.json())
+            .then(data => { if (!data.error) { matchData = data; renderMatchView(); } });
+    }
+
+    // ===== 主列表加载 =====
+    function loadLeads() {
         if (currentStage === 'match') {
             renderMatchView();
             return;
         }
-
+        document.getElementById('search-wrap').style.display = '';
+        const keyword = document.getElementById('search-input').value.trim();
         const url = `/api/leads?userid=${encodeURIComponent(currentUserid)}&stage=${currentStage}&keyword=${encodeURIComponent(keyword)}`;
         document.getElementById('leads-list').innerHTML = '<div class="loading">加载中...</div>';
         fetch(url)
@@ -256,12 +411,9 @@
             return v.slice(0, 19).replace('T', ' ');
         }
         if (Array.isArray(v)) {
-            // 数组：若是 [{name, ...}] 取 name 列表
-            const names = v.map(x => (x && typeof x === 'object') ? (x.name || x.label || JSON.stringify(x)) : x);
-            return names.join(', ');
+            return v.map(x => (x && typeof x === 'object') ? (x.name || x.label || JSON.stringify(x)) : x).join(', ');
         }
         if (typeof v === 'object') {
-            // 对象：优先取 name/label
             if (v.name) return v.name;
             if (v.label) return v.label;
             return JSON.stringify(v);
@@ -273,7 +425,6 @@
         document.getElementById('modal-mask').classList.add('show');
         document.getElementById('detail-modal').classList.add('show');
         document.getElementById('detail-body').innerHTML = '<div class="loading">加载中...</div>';
-
         fetch(`/api/lead/detail?userid=${encodeURIComponent(currentUserid)}&id=${leadId}`)
             .then(r => r.json())
             .then(data => {
@@ -282,25 +433,17 @@
                     return;
                 }
                 const lead = data.lead || {};
-                const groups = data.groups || [];
                 document.getElementById('detail-title').textContent = lead.name || '线索详情';
-
                 let html = '';
-                for (const sec of groups) {
+                for (const sec of data.groups || []) {
                     const rows = (sec.items || [])
                         .filter(it => it.value !== null && it.value !== undefined && it.value !== '')
-                        .map(it => `
-                            <div class="detail-row">
-                                <div class="detail-label">${it.label}</div>
-                                <div class="detail-value">${fmtVal(it.value)}</div>
-                            </div>
-                        `).join('');
-                    if (rows) {
-                        html += `<div class="detail-section">
-                            <div class="detail-section-title">${sec.title}</div>
-                            ${rows}
-                        </div>`;
-                    }
+                        .map(it => `<div class="detail-row">
+                            <div class="detail-label">${it.label}</div>
+                            <div class="detail-value">${fmtVal(it.value)}</div>
+                        </div>`).join('');
+                    if (rows) html += `<div class="detail-section">
+                        <div class="detail-section-title">${sec.title}</div>${rows}</div>`;
                 }
                 document.getElementById('detail-body').innerHTML = html || '<div class="empty"><p>暂无更多信息</p></div>';
             })
@@ -314,7 +457,7 @@
         document.getElementById('detail-modal').classList.remove('show');
     }
 
-    // ===== 当前聊天对象匹配 =====
+    // ===== 企微 JS SDK：检测当前会话 =====
     const WX_CONFIG = {
         corpId: '{{ corp_id }}',
         agentId: '{{ agent_id }}',
@@ -323,187 +466,15 @@
         agentSig: '{{ agent_sig }}',
     };
 
-    let matchData = null;  // { session_id, session_type, contact, m1_leads, m2_leads, match_by }
-
-    function bindLead(sessionId, leadId, bindType = 'manual') {
-        fetch('/api/lead/bind', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session_id: sessionId, lead_id: leadId, userid: currentUserid, action: 'bind', bind_type: bindType }),
-        })
-        .then(r => r.json())
-        .then(data => {
-            if (data.ok) {
-                alert('绑定成功');
-                reloadMatch();
-            } else {
-                alert('绑定失败: ' + (data.error || ''));
-            }
-        })
-        .catch(() => alert('绑定失败'));
-    }
-
-    function unbindLead(sessionId, leadId) {
-        if (!confirm('确认解除绑定？')) return;
-        fetch('/api/lead/bind', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session_id: sessionId, lead_id: leadId, userid: currentUserid, action: 'unbind' }),
-        })
-        .then(r => r.json())
-        .then(data => {
-            if (data.ok) {
-                alert('已解除绑定');
-                reloadMatch();
-            }
-        })
-        .catch(() => {});
-    }
-
-    function reloadMatch() {
-        if (!matchData) return;
-        const url = matchData.session_type === 'contact'
-            ? `/api/lead/match?userid=${encodeURIComponent(currentUserid)}&external_userid=${encodeURIComponent(matchData.contact.external_userid || '')}`
-            : `/api/lead/match?userid=${encodeURIComponent(currentUserid)}&chat_id=${encodeURIComponent(matchData.contact.chat_id || '')}`;
-        fetch(url)
-            .then(r => r.json())
-            .then(renderMatchBar)
-            .catch(() => {});
-    }
-
-    function renderMatchBar(data) {
-        if (!data || !data.contact) return;
+    function activateMatchTab(data) {
         matchData = data;
         const tab = document.getElementById('tab-match');
-        if (tab) {
-            tab.style.display = '';
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
-            currentStage = 'match';
-            loadLeads();
-        }
-    }
-
-    function renderMatchView() {
-        if (!matchData) {
-            document.getElementById('leads-list').innerHTML = '<div class="empty"><p>未检测到当前聊天对象</p></div>';
-            return;
-        }
-        const c = matchData.contact;
-        const m1 = matchData.m1_leads || [];
-        const m2 = matchData.m2_leads || [];
-        const sessionId = matchData.session_id;
-        const sessionType = matchData.session_type;
-
-        let html = '';
-
-        // 会话信息 banner
-        const typeLabel = c.type === 1 ? '个微' : c.type === 2 ? '企微' : sessionType === 'group' ? '群聊' : '';
-        const matchTag = matchData.match_by ? `<span style="font-size:11px;color:#999;">${matchData.match_by}</span>` : '';
-        html += `<div class="match-bar">
-            <div class="title"><span>📌 当前会话</span>${matchTag}</div>
-            <div class="contact">${c.name || '未知'}${typeLabel ? ' · ' + typeLabel : ''}${c.corp_name ? ' · ' + c.corp_name : ''}${c.mobile ? ' · ' + c.mobile : ''}</div>
-        </div>`;
-
-        // M1 已绑定
-        html += '<div class="match-section"><h3>已绑定线索 <span class="badge">' + m1.length + '</span></h3>';
-        if (m1.length > 0) {
-            m1.forEach(lead => {
-                html += renderCard(lead, sessionId, 'bound');
-            });
-        } else {
-            html += '<div class="empty-tip">暂无绑定线索</div>';
-        }
-        html += '</div>';
-
-        // M2 未绑定但匹配（仅个人）
-        if (sessionType === 'contact') {
-            html += '<div class="match-section"><h3>未绑定线索 <span class="badge orange">' + m2.length + '</span></h3>';
-            if (m2.length > 0) {
-                m2.forEach(lead => {
-                    html += renderCard(lead, sessionId, 'unbound');
-                });
-            } else {
-                html += '<div class="empty-tip">未找到匹配的线索</div>';
-            }
-            html += '</div>';
-        }
-
-        // M3 人工绑定
-        html += '<div class="match-section"><h3>人工绑定线索 <span class="badge gray">+</span></h3>';
-        html += `<div class="manual-bind-box">
-            <select id="manual-bind-select"><option value="">加载中...</option></select>
-            <div class="actions">
-                <button class="confirm" onclick="doManualBind()">确认绑定</button>
-            </div>
-        </div></div>`;
-
-        document.getElementById('leads-list').innerHTML = html;
-
-        // 异步加载 M3 下拉
-        fetch(`/api/lead/bindable?userid=${encodeURIComponent(currentUserid)}&session_id=${sessionId}`)
-            .then(r => r.json())
-            .then(data => {
-                const sel = document.getElementById('manual-bind-select');
-                if (!sel) return;
-                if (!data.leads || data.leads.length === 0) {
-                    sel.innerHTML = '<option value="">无可绑定线索</option>';
-                    return;
-                }
-                sel.innerHTML = '<option value="">请选择线索...</option>' + data.leads.map(l =>
-                    `<option value="${l.id}">${l.name || '未知'} - ${l.company || ''} - ${l.mobile || ''}</option>`
-                ).join('');
-            })
-            .catch(() => {
-                const sel = document.getElementById('manual-bind-select');
-                if (sel) sel.innerHTML = '<option value="">加载失败</option>';
-            });
-    }
-
-    function doManualBind() {
-        const sel = document.getElementById('manual-bind-select');
-        if (!sel || !sel.value) {
-            alert('请选择线索');
-            return;
-        }
-        bindLead(matchData.session_id, sel.value, 'manual');
-    }
-
-    function renderCard(lead, sessionId = null, bindStatus = null) {
-        const name = lead.name || '未知客户';
-        const company = lead.company || '';
-        const mobile = lead.mobile || lead.tel || '';
-        const stageLabel = lead.leads_stage_label || lead.customer_stage_label || '';
-        const stage = lead.leads_stage || '';
-        const bizStatus = lead.biz_status_label || '';
-        const followTime = lead.last_follow_time ? lead.last_follow_time.slice(0, 10) : '';
-        const createTime = lead.create_time ? lead.create_time.slice(0, 10) : '';
-        const ownerName = lead.owner_name || '';
-        const dateLabel = (bizStatus === '跟进中' && followTime)
-            ? `跟进: ${followTime}`
-            : (createTime ? `创建: ${createTime}` : '');
-
-        let actionBtn = '';
-        if (sessionId && bindStatus === 'unbound') {
-            actionBtn = `<button class="bind-btn" onclick="event.stopPropagation(); bindLead(${sessionId}, ${lead.id}, 'manual')">绑定</button>`;
-        } else if (sessionId && bindStatus === 'bound') {
-            actionBtn = `<button class="unbind-btn" onclick="event.stopPropagation(); unbindLead(${sessionId}, ${lead.id})">解绑</button>`;
-        }
-
-        return `
-        <div class="lead-card" onclick="showDetail(${lead.id})">
-            <div class="name-row">
-                <span class="name">${name}</span>
-                ${stageTag(stageLabel, stage)}
-                ${actionBtn}
-            </div>
-            ${company ? `<div class="company">🏢 ${company}</div>` : ''}
-            <div class="info-row">
-                ${mobile ? `<span>📱 ${mobile}</span>` : ''}
-                ${dateLabel ? `<span>${dateLabel}</span>` : ''}
-                ${ownerName ? `<span class="owner">👤 ${ownerName}</span>` : ''}
-            </div>
-        </div>`;
+        if (!tab) return;
+        tab.style.display = '';
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        currentStage = 'match';
+        renderMatchView();
     }
 
     function tryMatchExternalContact() {
@@ -526,30 +497,36 @@
                 signature: WX_CONFIG.agentSig,
                 jsApiList: ['getCurExternalContact', 'getCurExternalChat'],
                 success: function () {
+                    // 先尝试单聊外部联系人
                     wx.invoke('getCurExternalContact', {}, function (res) {
-                        console.log('[getCurExternalContact]', res);
+                        console.log('[getCurExternalContact]', JSON.stringify(res));
                         if (res.err_msg === 'getCurExternalContact:ok' && res.userId) {
                             fetch(`/api/lead/match?userid=${encodeURIComponent(currentUserid)}&external_userid=${encodeURIComponent(res.userId)}`)
                                 .then(r => r.json())
-                                .then(renderMatchBar)
+                                .then(data => { if (!data.error) activateMatchTab(data); })
                                 .catch(() => {});
-                            return;
+                        } else {
+                            // 回退：尝试群聊
+                            wx.invoke('getCurExternalChat', {}, function (r) {
+                                console.log('[getCurExternalChat]', JSON.stringify(r));
+                                if (r.err_msg === 'getCurExternalChat:ok' && r.chatId) {
+                                    fetch(`/api/lead/match?userid=${encodeURIComponent(currentUserid)}&chat_id=${encodeURIComponent(r.chatId)}`)
+                                        .then(resp => resp.json())
+                                        .then(data => { if (!data.error) activateMatchTab(data); })
+                                        .catch(() => {});
+                                }
+                            });
                         }
-                        wx.invoke('getCurExternalChat', {}, function (r) {
-                            console.log('[getCurExternalChat]', r);
-                            if (r.err_msg === 'getCurExternalChat:ok' && r.chatId) {
-                                fetch(`/api/lead/match?userid=${encodeURIComponent(currentUserid)}&chat_id=${encodeURIComponent(r.chatId)}`)
-                                    .then(resp => resp.json())
-                                    .then(renderMatchBar)
-                                    .catch(() => {});
-                            }
-                        });
                     });
                 },
-                fail: function () { /* 不在侧边栏或未配置 */ },
+                fail: function (res) {
+                    console.log('[agentConfig fail]', JSON.stringify(res));
+                },
             });
         });
-        wx.error(function () { /* config 失败，忽略 */ });
+        wx.error(function (res) {
+            console.log('[wx.config error]', JSON.stringify(res));
+        });
     }
 
     loadLeads();
