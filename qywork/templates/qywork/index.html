@@ -92,9 +92,11 @@
 
     <div class="tabs">
         <div class="tab active" data-stage="">全部</div>
+        <div class="tab" data-stage="unassigned">未分配</div>
+        <div class="tab" data-stage="new">待处理</div>
         <div class="tab" data-stage="following">跟进中</div>
-        <div class="tab" data-stage="new">待联系</div>
-        <div class="tab" data-stage="deal">已成交</div>
+        <div class="tab" data-stage="deal">已转换</div>
+        {% if is_manager %}<div class="tab" data-stage="mine">我负责的</div>{% endif %}
     </div>
 
     <div class="search-bar">
@@ -141,9 +143,14 @@
         const mobile = lead.mobile || lead.tel || '';
         const stageLabel = lead.leads_stage_label || lead.customer_stage_label || '';
         const stage = lead.leads_stage || '';
+        const bizStatus = lead.biz_status_label || '';
         const followTime = lead.last_follow_time ? lead.last_follow_time.slice(0, 10) : '';
         const createTime = lead.create_time ? lead.create_time.slice(0, 10) : '';
         const ownerName = lead.owner_name || '';
+        // 仅"跟进中"显示跟进日期，其它状态显示创建日期
+        const dateLabel = (bizStatus === '跟进中' && followTime)
+            ? `跟进: ${followTime}`
+            : (createTime ? `创建: ${createTime}` : '');
         return `
         <div class="lead-card" onclick="showDetail(${lead.id})">
             <div class="name-row">
@@ -153,7 +160,7 @@
             ${company ? `<div class="company">🏢 ${company}</div>` : ''}
             <div class="info-row">
                 ${mobile ? `<span>📱 ${mobile}</span>` : ''}
-                ${followTime ? `<span>跟进: ${followTime}</span>` : createTime ? `<span>创建: ${createTime}</span>` : ''}
+                ${dateLabel ? `<span>${dateLabel}</span>` : ''}
                 ${ownerName ? `<span class="owner">👤 ${ownerName}</span>` : ''}
             </div>
         </div>`;
@@ -207,88 +214,20 @@
     });
 
     // ===== 详情弹窗 =====
-    const DETAIL_SECTIONS = [
-        {
-            title: '基本信息',
-            fields: [
-                ['name', '姓名'], ['mobile', '手机'], ['tel', '电话'], ['email', '邮箱'],
-                ['wechat_id', '微信号'], ['wechat_nickname', '微信昵称'],
-                ['gender_label', '性别'], ['address', '地址'],
-            ],
-        },
-        {
-            title: '公司信息',
-            fields: [
-                ['company', '公司全称'], ['department', '部门'], ['job_title', '职位'],
-                ['main_business', '主营业务'], ['business_scope', '经营范围'],
-                ['register_capital', '注册资本'], ['paid_capital', '实缴资本'],
-                ['employee_count', '参保人数'], ['company_found_date', '企业成立时间'],
-            ],
-        },
-        {
-            title: '线索状态',
-            fields: [
-                ['leads_stage_label', '线索阶段'], ['life_status_label', '生命状态'],
-                ['biz_status_label', '业务状态'], ['lock_status_label', '锁定状态'],
-                ['record_type_label', '业务类型'], ['customer_stage_label', '客户阶段'],
-                ['customer_type_label', '客户类型'], ['customer_quality_label', '客户质量'],
-            ],
-        },
-        {
-            title: '来源',
-            fields: [
-                ['origin_source_label', '来源系统'], ['source_label', '来源细分'],
-                ['promotion_channel_label', '推广渠道'],
-                ['industry_label', '渠道行业'], ['industry_status_label', '行业地位'],
-            ],
-        },
-        {
-            title: '终端客户',
-            fields: [
-                ['terminal_customer_name', '终端客户名称'],
-                ['terminal_customer_type_label', '终端类型'],
-                ['terminal_customer_location', '所在地'],
-                ['terminal_industry_label', '终端行业'],
-                ['terminal_main_business', '主营业务'],
-                ['terminal_register_capital', '注册资本'],
-            ],
-        },
-        {
-            title: '负责人 & 时间',
-            fields: [
-                ['owner_name', '负责人'],
-                ['create_time', 'CRM创建时间'],
-                ['last_modified_time', '最后修改'],
-                ['last_follow_time', '最后跟进'],
-                ['next_followed_time', '下次跟进'],
-                ['assigned_time', '领取时间'],
-                ['transform_time', '转化时间'],
-            ],
-        },
-        {
-            title: '成交',
-            fields: [
-                ['first_deal_amount', '首次成交金额'],
-                ['first_deal_time', '首次成交时间'],
-                ['deal_cycle', '成交周期'],
-            ],
-        },
-        {
-            title: '其他',
-            fields: [
-                ['remark', '备注'],
-                ['url', 'URL'],
-                ['qixinbao_url', '启信宝'],
-            ],
-        },
-    ];
-
     function fmtVal(v) {
         if (v === null || v === undefined || v === '') return '-';
         if (typeof v === 'string' && v.length >= 19 && v[10] === 'T') {
             return v.slice(0, 19).replace('T', ' ');
         }
-        if (Array.isArray(v) || typeof v === 'object') {
+        if (Array.isArray(v)) {
+            // 数组：若是 [{name, ...}] 取 name 列表
+            const names = v.map(x => (x && typeof x === 'object') ? (x.name || x.label || JSON.stringify(x)) : x);
+            return names.join(', ');
+        }
+        if (typeof v === 'object') {
+            // 对象：优先取 name/label
+            if (v.name) return v.name;
+            if (v.label) return v.label;
             return JSON.stringify(v);
         }
         return String(v);
@@ -307,19 +246,17 @@
                     return;
                 }
                 const lead = data.lead || {};
+                const groups = data.groups || [];
                 document.getElementById('detail-title').textContent = lead.name || '线索详情';
 
                 let html = '';
-                for (const sec of DETAIL_SECTIONS) {
-                    const rows = sec.fields
-                        .filter(([k]) => {
-                            const v = lead[k];
-                            return v !== null && v !== undefined && v !== '';
-                        })
-                        .map(([k, label]) => `
+                for (const sec of groups) {
+                    const rows = (sec.items || [])
+                        .filter(it => it.value !== null && it.value !== undefined && it.value !== '')
+                        .map(it => `
                             <div class="detail-row">
-                                <div class="detail-label">${label}</div>
-                                <div class="detail-value">${fmtVal(lead[k])}</div>
+                                <div class="detail-label">${it.label}</div>
+                                <div class="detail-value">${fmtVal(it.value)}</div>
                             </div>
                         `).join('');
                     if (rows) {

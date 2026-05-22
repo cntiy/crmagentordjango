@@ -135,6 +135,7 @@ def index(request):
         'user_name': user_name,
         'debug_mode': debug_mode,
         'is_super': is_super,
+        'is_manager': is_manager,
         'all_users': all_users,
         'corp_id': corp_id,
         'agent_id': agent_id,
@@ -146,32 +147,35 @@ def index(request):
 
 def _resolve_visible_crm_ids(userid):
     """
-    返回 (是否超管, 可见的 crm_user_id 列表 或 None=全部, 错误信息)
-    - 超管 → 全部线索（返回 None）
+    返回 (是否超管, 可见的 crm_user_id 列表 或 None=全部, 自己的 crm_user_id, 是否主管, 错误信息)
+    - 超管 → 全部线索（visible=None）
     - 主管(position=2) → 同部门所有员工的 crm_user_id
     - 普通员工 → 仅自己的 crm_user_id
     """
     if userid in SUPER_USERS:
-        return True, None, None
+        return True, None, '', False, None
 
     try:
         user_info = UserInfo.objects.get(qw_id=userid)
     except UserInfo.DoesNotExist:
-        return False, [], f'未找到企微用户 {userid}'
+        return False, [], '', False, f'未找到企微用户 {userid}'
 
     if not user_info.crm_user_id:
-        return False, [], '该用户未关联 CRM 账号'
+        return False, [], '', False, '该用户未关联 CRM 账号'
 
-    if user_info.position == 2 and user_info.department:
+    is_manager = (user_info.position == 2 and bool(user_info.department))
+    own_crm_id = user_info.crm_user_id
+
+    if is_manager:
         crm_ids = list(
             UserInfo.objects.filter(department=user_info.department)
             .exclude(crm_user_id__isnull=True)
             .exclude(crm_user_id='')
             .values_list('crm_user_id', flat=True)
         )
-        return False, crm_ids, None
+        return False, crm_ids, own_crm_id, True, None
 
-    return False, [user_info.crm_user_id], None
+    return False, [own_crm_id], own_crm_id, False, None
 
 
 def api_leads(request):
@@ -183,7 +187,7 @@ def api_leads(request):
     if not userid:
         return JsonResponse({'error': '缺少 userid 参数'}, status=400)
 
-    is_super, visible_crm_ids, err = _resolve_visible_crm_ids(userid)
+    is_super, visible_crm_ids, own_crm_id, is_manager, err = _resolve_visible_crm_ids(userid)
     if err:
         return JsonResponse({'error': err, 'leads': [], 'total': 0, 'active': 0, 'new_this_month': 0})
 
@@ -199,11 +203,19 @@ def api_leads(request):
 
     # Tab 阶段过滤
     if stage_filter == 'following':
-        qs = qs.filter(customer_stage__in=['following', 'negotiating', 'intention'])
+        qs = qs.filter(biz_status_label='跟进中')
     elif stage_filter == 'new':
-        qs = qs.filter(leads_stage__in=['new', 'assigned', 'uncontacted'])
+        qs = qs.filter(biz_status_label='待处理')
     elif stage_filter == 'deal':
-        qs = qs.filter(leads_stage__icontains='deal') | qs.filter(biz_status_label='已成交')
+        qs = qs.filter(biz_status_label='已转换')
+    elif stage_filter == 'unassigned':
+        qs = qs.filter(biz_status_label='未分配')
+    elif stage_filter == 'mine':
+        # 主管专用：仅看自己负责的
+        if own_crm_id:
+            qs = qs.filter(owner_primary=own_crm_id)
+        else:
+            qs = qs.none()
 
     # 关键词搜索
     if keyword:
@@ -216,15 +228,15 @@ def api_leads(request):
 
     # 统计
     total = base_qs.count()
-    active = base_qs.exclude(leads_stage__in=['returned', 'lost', 'deal_done']).count()
+    active = base_qs.filter(biz_status_label='跟进中').count()
     now = timezone.now()
     new_this_month = base_qs.filter(
-        row_created_at__year=now.year,
-        row_created_at__month=now.month
+        create_time__year=now.year,
+        create_time__month=now.month,
     ).count()
 
-    # 取最多 200 条
-    leads = list(qs.order_by('-row_updated_at')[:200].values(
+    # 取最多 200 条（按 raw_json 里的 last_modified_time 降序）
+    leads = list(qs.order_by('-raw_json__last_modified_time')[:200].values(
         'id', 'name', 'mobile', 'tel', 'company',
         'leads_stage', 'leads_stage_label',
         'customer_stage', 'customer_stage_label',
@@ -264,7 +276,7 @@ def api_lead_detail(request):
     if not userid or not lead_id:
         return JsonResponse({'error': '缺少参数'}, status=400)
 
-    is_super, visible_crm_ids, err = _resolve_visible_crm_ids(userid)
+    is_super, visible_crm_ids, own_crm_id, is_manager, err = _resolve_visible_crm_ids(userid)
     if err:
         return JsonResponse({'error': err}, status=403)
 
@@ -278,24 +290,115 @@ def api_lead_detail(request):
         if lead.owner_primary not in visible_crm_ids:
             return JsonResponse({'error': '无权查看此线索'}, status=403)
 
-    # 收集所有要显示的字段（直接全量返回）
-    data = {}
+    # 返回除 raw_json 外的所有字段（保留分组结构）
+    EXCLUDED = {'raw_json'}
+
+    DETAIL_GROUPS = [
+        ('基本信息', ['name', 'mobile', 'tel', 'email', 'wechat_id', 'wechat_nickname',
+                  'gender_label', 'address']),
+        ('公司信息', ['company', 'department', 'job_title', 'main_business', 'business_scope',
+                  'register_capital', 'register_capital_wan', 'paid_capital', 'paid_capital_num',
+                  'capital_nature_label', 'employee_count', 'company_found_date',
+                  'last_year_revenue', 'last_year_profit']),
+        ('线索状态', ['leads_stage_label', 'leads_stage', 'life_status_label', 'life_status',
+                  'biz_status_label', 'biz_status', 'lock_status_label', 'lock_status',
+                  'record_type_label', 'record_type', 'customer_stage_label', 'customer_stage',
+                  'customer_type_label', 'customer_quality_label', 'customer_scale',
+                  'history_record_label']),
+        ('来源', ['origin_source_label', 'source_label', 'promotion_channel_label',
+                'industry_label', 'industry_other_label', 'industry_channel_label',
+                'industry_status_label', 'industry_ext']),
+        ('终端客户', ['terminal_customer_name', 'terminal_customer_type_label',
+                  'terminal_customer_location', 'terminal_industry_label',
+                  'terminal_main_business', 'terminal_register_capital',
+                  'terminal_paid_capital', 'terminal_employee_count',
+                  'terminal_company_found_time']),
+        ('产品', ['product_brand_label', 'product_model_label', 'product_spec',
+                'product_category_label', 'product_function_label']),
+        ('负责人与团队', ['owner_name', 'owner', 'owner_primary', 'created_by',
+                    'last_modified_by', 'last_follower', 'assigner_id', 'lock_user',
+                    'out_owner', 'relevant_team']),
+        ('时间', ['create_time', 'last_modified_time', 'last_follow_time',
+                'next_followed_time', 'assigned_time', 'expire_time', 'returned_time',
+                'transform_time', 'owner_change_time', 'leads_stage_changed_time']),
+        ('成交', ['first_deal_amount', 'first_deal_amount_2', 'first_deal_time', 'deal_cycle']),
+        ('其他', ['main_market', 'production_base_info', 'investment_plan', 'remark',
+                'url', 'qixinbao_url', 'attachments', 'historical_pool_customer',
+                'history_lead_info', 'history_follower_ref', 'reassigned_to',
+                'crm_id', 'leads_pool_id_ref', 'is_deleted',
+                'row_created_at', 'row_updated_at', 'last_synced_at']),
+    ]
+
+    # 收集所有字段名 → label 映射（从 model verbose_name 拿）
+    label_map = {}
+    for f in lead._meta.get_fields():
+        if hasattr(f, 'attname') and hasattr(f, 'verbose_name'):
+            vn = str(f.verbose_name)
+            # Django 默认 verbose_name 为字段名（小写），不太可读，过滤掉
+            if vn and vn != f.attname.replace('_', ' '):
+                label_map[f.attname] = vn
+
+    # 自定义补充几个 label
+    label_map.update({
+        'owner_name': '负责人姓名',
+        'owner_primary': '主负责人CRM ID',
+        'crm_id': 'CRM ID',
+        'is_deleted': '是否删除',
+        'row_created_at': '同步入库时间',
+        'row_updated_at': '同步更新时间',
+        'last_synced_at': '上次同步时间',
+    })
+
+    # 全字段数据
+    field_data = {}
     for f in lead._meta.get_fields():
         if not hasattr(f, 'attname'):
             continue
-        v = getattr(lead, f.attname, None)
+        name = f.attname
+        if name in EXCLUDED:
+            continue
+        v = getattr(lead, name, None)
         if hasattr(v, 'isoformat'):
             v = v.isoformat()
-        data[f.attname] = v
+        field_data[name] = v
 
-    # 补 owner 姓名
+    # owner 姓名
     if lead.owner_primary:
         owner = UserInfo.objects.filter(crm_user_id=lead.owner_primary).first()
-        data['owner_name'] = owner.name if owner else ''
+        field_data['owner_name'] = owner.name if owner else ''
     else:
-        data['owner_name'] = ''
+        field_data['owner_name'] = ''
 
-    return JsonResponse({'lead': data})
+    # 按分组拼装；最后再加一个"其它"分组兜底，避免遗漏新字段
+    grouped = []
+    used = set()
+    for title, names in DETAIL_GROUPS:
+        items = []
+        for n in names:
+            if n in field_data:
+                items.append({
+                    'key': n,
+                    'label': label_map.get(n, n),
+                    'value': field_data[n],
+                })
+                used.add(n)
+        if items:
+            grouped.append({'title': title, 'items': items})
+
+    # 兜底：未被分组的字段
+    extra = []
+    for n, v in field_data.items():
+        if n in used:
+            continue
+        extra.append({
+            'key': n,
+            'label': label_map.get(n, n),
+            'value': v,
+        })
+    if extra:
+        grouped.append({'title': '更多字段', 'items': extra})
+
+    return JsonResponse({'lead': field_data, 'groups': grouped})
 
 
 def api_users(request):
