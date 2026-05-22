@@ -58,6 +58,13 @@
         .stat-item .num { font-size: 18px; font-weight: 700; color: #1677ff; }
         .stat-item .label { font-size: 11px; color: #999; margin-top: 2px; }
 
+        /* 当前聊天匹配区 */
+        .match-bar { background: linear-gradient(90deg, #fff7e6, #fffbe6); border-bottom: 1px solid #ffe58f; padding: 10px 12px; }
+        .match-bar .title { font-size: 12px; color: #d48806; font-weight: 600; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+        .match-bar .contact { font-size: 13px; color: #333; margin-bottom: 6px; }
+        .match-bar .empty-tip { font-size: 12px; color: #999; padding: 4px 0; }
+        .match-bar .matched-list .lead-card { margin-bottom: 6px; padding: 8px 10px; }
+
         /* 测试用员工选择器 */
         .debug-bar { background: #fffbe6; border-bottom: 1px solid #ffe58f; padding: 8px 12px; font-size: 12px; color: #666; display: flex; align-items: center; gap: 8px; }
         .debug-bar select { font-size: 12px; padding: 3px 6px; border: 1px solid #d9d9d9; border-radius: 4px; }
@@ -90,7 +97,10 @@
         <div class="stat-item"><div class="num" id="stat-new">-</div><div class="label">本月新增</div></div>
     </div>
 
+    <!-- 当前聊天匹配区由 JS 控制，渲染到 leads-list 中（受 tab 切换） -->
+
     <div class="tabs">
+        <div class="tab" data-stage="match" id="tab-match" style="display:none;">📌 匹配</div>
         <div class="tab active" data-stage="">全部</div>
         {% if is_super %}<div class="tab" data-stage="unassigned">未分配</div>{% endif %}
         <div class="tab" data-stage="new">待处理</div>
@@ -119,6 +129,8 @@
         </div>
     </div>
 
+    <script src="https://res.wx.qq.com/open/js/jweixin-1.2.0.js"></script>
+    <script src="https://wwcdn.weixin.qq.com/node/wework/wwopen/js/wwLogin-1.2.7.js"></script>
     <script>
     let currentUserid = '{{ userid }}';
     let currentStage = '';
@@ -178,8 +190,44 @@
         container.innerHTML = leads.map(renderCard).join('');
     }
 
+    let matchCache = null;  // {contact, match_by, leads}
+
     function loadLeads() {
         const keyword = document.getElementById('search-input').value.trim();
+
+        // 匹配视图：直接用缓存的 match 结果
+        if (currentStage === 'match') {
+            const list = document.getElementById('leads-list');
+            if (!matchCache || !matchCache.contact) {
+                list.innerHTML = '<div class="empty"><p>未检测到当前聊天对象</p></div>';
+                return;
+            }
+            const c = matchCache.contact;
+            const tagMap = { mobile: '手机号匹配', name: '姓名匹配', '': '未找到匹配' };
+            const banner = `
+                <div class="match-bar">
+                    <div class="title">
+                        <span>📌 当前聊天对象</span>
+                        <span style="font-weight:normal;color:#999;">${tagMap[matchCache.match_by || ''] || ''}</span>
+                    </div>
+                    <div class="contact">${c.name || '未知'}${c.corp_name ? ' · ' + c.corp_name : ''}${c.mobile ? ' · ' + c.mobile : ''}</div>
+                </div>`;
+            const leads = matchCache.leads || [];
+            const totalInCrm = matchCache.total_in_crm || 0;
+            let cardsHtml = '';
+            if (leads.length > 0) {
+                cardsHtml = leads.map(renderCard).join('');
+            } else if (totalInCrm > 0) {
+                // CRM 里有，但不在权限范围
+                cardsHtml = `<div class="empty"><p>⚠️ CRM 中有 ${totalInCrm} 条匹配线索，但不在你的权限范围内</p></div>`;
+            } else {
+                // CRM 里完全没有
+                cardsHtml = '<div class="empty"><p>CRM 中未找到匹配的线索</p></div>';
+            }
+            list.innerHTML = banner + cardsHtml;
+            return;
+        }
+
         const url = `/api/leads?userid=${encodeURIComponent(currentUserid)}&stage=${currentStage}&keyword=${encodeURIComponent(keyword)}`;
         document.getElementById('leads-list').innerHTML = '<div class="loading">加载中...</div>';
         fetch(url)
@@ -278,7 +326,78 @@
         document.getElementById('detail-modal').classList.remove('show');
     }
 
+    // ===== 当前聊天对象匹配 =====
+    const WX_CONFIG = {
+        corpId: '{{ corp_id }}',
+        agentId: '{{ agent_id }}',
+        timestamp: {{ timestamp }},
+        nonceStr: '{{ noncestr }}',
+        agentSig: '{{ agent_sig }}',
+    };
+
+    function renderMatchBar(data) {
+        if (!data || !data.contact) return;
+        matchCache = data;
+        const tab = document.getElementById('tab-match');
+        if (tab) {
+            tab.style.display = '';
+            // 自动切到匹配 tab（默认展开）
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            currentStage = 'match';
+            loadLeads();
+        }
+    }
+
+    function tryMatchExternalContact() {
+        if (typeof wx === 'undefined') return;
+        // 1. wx.config（企业号身份）
+        wx.config({
+            beta: true,
+            debug: false,
+            appId: WX_CONFIG.corpId,
+            timestamp: WX_CONFIG.timestamp,
+            nonceStr: WX_CONFIG.nonceStr,
+            signature: WX_CONFIG.agentSig,
+            jsApiList: ['getCurExternalContact', 'getCurExternalChat'],
+        });
+        wx.ready(function () {
+            // 2. agentConfig（应用身份，才能调 getCurExternalContact）
+            wx.agentConfig({
+                corpid: WX_CONFIG.corpId,
+                agentid: WX_CONFIG.agentId,
+                timestamp: WX_CONFIG.timestamp,
+                nonceStr: WX_CONFIG.nonceStr,
+                signature: WX_CONFIG.agentSig,
+                jsApiList: ['getCurExternalContact', 'getCurExternalChat'],
+                success: function () {
+                    wx.invoke('getCurExternalContact', {}, function (res) {
+                        console.log('[getCurExternalContact]', res);
+                        if (res.err_msg === 'getCurExternalContact:ok' && res.userId) {
+                            fetch(`/api/lead/match?userid=${encodeURIComponent(currentUserid)}&external_userid=${encodeURIComponent(res.userId)}`)
+                                .then(r => r.json())
+                                .then(renderMatchBar)
+                                .catch(() => {});
+                            return;
+                        }
+                        wx.invoke('getCurExternalChat', {}, function (r) {
+                            console.log('[getCurExternalChat]', r);
+                            if (r.err_msg === 'getCurExternalChat:ok' && r.chatId) {
+                                fetch(`/api/groupchat?userid=${encodeURIComponent(currentUserid)}&chat_id=${encodeURIComponent(r.chatId)}`)
+                                    .then(resp => resp.json())
+                                    .catch(() => {});
+                            }
+                        });
+                    });
+                },
+                fail: function () { /* 不在侧边栏或未配置 */ },
+            });
+        });
+        wx.error(function () { /* config 失败，忽略 */ });
+    }
+
     loadLeads();
+    tryMatchExternalContact();
     </script>
 </body>
 </html>
