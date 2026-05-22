@@ -1,6 +1,7 @@
 import hashlib
 import json
 import random
+import re
 import string
 import time
 from urllib.parse import quote
@@ -11,9 +12,15 @@ from django.db.models import Q
 from django.http import HttpResponse, JsonResponse, FileResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
 
-from .models import UserInfo, CrmLeads, CrmFieldMapping
-from .services import get_access_token, get_agent_ticket
+from .models import UserInfo, CrmLeads, CrmFieldMapping, QwSession, LeadSessionBind
+from .services import (
+    get_access_token,
+    get_agent_ticket,
+    fetch_external_contact,
+    fetch_groupchat,
+)
 
 
 # 超级管理员企微 userid（可查看所有线索）
@@ -335,52 +342,222 @@ def api_lead_detail(request):
     })
 
 
+# ─────────────────────────────────────────────
+# 辅助：从企微 externalcontact 原始返回提取手机和公司
+# ─────────────────────────────────────────────
+
+def _extract_contact_info(ext_data: dict, opener_userid: str) -> dict:
+    """
+    从企微 externalcontact/get 原始返回提取：
+      name, type(1个微/2企微), mobile, corp_name, avatar
+    mobile 来源优先级：
+      1. follow_user[opener].remark_mobiles[0]
+      2. external_profile.external_attr 里名字含"电话"的文本
+    corp_name 来源：
+      - 企微(type=2): external_contact.corp_name
+      - 个微(type=1): follow_user[opener].remark_corp_name
+    """
+    info = ext_data.get('external_contact', {}) or {}
+    follow_users = ext_data.get('follow_user', []) or []
+
+    name = info.get('name', '') or ''
+    contact_type = info.get('type', 0)  # 1=个微 2=企微
+    avatar = info.get('avatar', '') or ''
+
+    # corp_name
+    if contact_type == 2:
+        corp_name = info.get('corp_name', '') or ''
+    else:
+        # 个微：找当前打开侧边栏的销售的 remark_corp_name
+        corp_name = ''
+        for fu in follow_users:
+            if fu.get('userid') == opener_userid:
+                corp_name = fu.get('remark_corp_name', '') or ''
+                break
+
+    # mobile：优先 remark_mobiles
+    mobile = ''
+    for fu in follow_users:
+        if fu.get('userid') == opener_userid:
+            rm = fu.get('remark_mobiles') or []
+            if rm:
+                mobile = rm[0]
+                break
+
+    # 回退到 external_profile.external_attr
+    if not mobile:
+        profile = info.get('external_profile') or {}
+        for attr in profile.get('external_attr', []) or []:
+            if attr.get('type') == 0 and '电话' in attr.get('name', ''):
+                mobile = (attr.get('text') or {}).get('value', '') or ''
+                break
+
+    return {
+        'name': name,
+        'type': contact_type,
+        'mobile': mobile,
+        'corp_name': corp_name,
+        'avatar': avatar,
+    }
+
+
+def _serialize_leads(lead_objs_or_qs):
+    """将 CrmLeads queryset/列表序列化为前端卡片格式"""
+    if not lead_objs_or_qs:
+        return []
+    if hasattr(lead_objs_or_qs, 'values'):
+        rows = list(lead_objs_or_qs.values(
+            'id', 'name', 'mobile', 'tel', 'company',
+            'leads_stage', 'leads_stage_label',
+            'customer_stage', 'customer_stage_label',
+            'biz_status_label', 'life_status_label',
+            'last_follow_time', 'create_time', 'row_updated_at',
+            'owner_primary',
+        ))
+    else:
+        ids = [l.id for l in lead_objs_or_qs]
+        rows = list(CrmLeads.objects.using('crm').filter(id__in=ids).values(
+            'id', 'name', 'mobile', 'tel', 'company',
+            'leads_stage', 'leads_stage_label',
+            'customer_stage', 'customer_stage_label',
+            'biz_status_label', 'life_status_label',
+            'last_follow_time', 'create_time', 'row_updated_at',
+            'owner_primary',
+        ))
+    owner_ids = {r['owner_primary'] for r in rows if r.get('owner_primary')}
+    owner_map = {}
+    if owner_ids:
+        owner_map = dict(
+            UserInfo.objects.filter(crm_user_id__in=owner_ids)
+            .values_list('crm_user_id', 'name')
+        )
+    for r in rows:
+        r['owner_name'] = owner_map.get(r.get('owner_primary'), '') or ''
+        for k, v in r.items():
+            if hasattr(v, 'isoformat'):
+                r[k] = v.isoformat()
+    return rows
+
+
+def _upsert_session(session_type: str, external_id: str, opener_userid: str,
+                    name: str = '', contact_type: int = 0,
+                    corp_name: str = '', mobile: str = '', raw_info: dict = None) -> 'QwSession':
+    """
+    Upsert qw_session 表：
+    - session_type: 'contact' | 'group'
+    - external_id: external_userid 或 chat_id
+    """
+    from django.utils import timezone as tz
+    now = tz.now()
+    session, created = QwSession.objects.get_or_create(
+        session_type=session_type,
+        external_id=external_id,
+        defaults={
+            'name': name,
+            'contact_type': contact_type,
+            'corp_name': corp_name,
+            'mobile': mobile,
+            'raw_info': raw_info or {},
+            'first_opened_by': opener_userid,
+            'last_opened_by': opener_userid,
+            'first_opened_at': now,
+            'last_opened_at': now,
+        }
+    )
+    if not created:
+        # 更新可能变化的字段
+        update_fields = ['last_opened_by', 'last_opened_at']
+        session.last_opened_by = opener_userid
+        session.last_opened_at = now
+        if name and not session.name:
+            session.name = name
+            update_fields.append('name')
+        if mobile and not session.mobile:
+            session.mobile = mobile
+            update_fields.append('mobile')
+        if corp_name and not session.corp_name:
+            session.corp_name = corp_name
+            update_fields.append('corp_name')
+        if raw_info:
+            session.raw_info = raw_info
+            update_fields.append('raw_info')
+        session.save(update_fields=update_fields)
+    return session
+
+
+def _match_leads_by_contact(external_id: str, contact_info: dict,
+                             base_qs, bound_lead_ids: set) -> tuple:
+    """
+    对单个外部联系人用 mobile/company/name 匹配线索。
+    返回 (m2_leads_list, match_by)，结果已排除 bound_lead_ids。
+    """
+    mobile = contact_info.get('mobile', '') or ''
+    corp_name = contact_info.get('corp_name', '') or ''
+    name = contact_info.get('name', '') or ''
+    match_by = ''
+    matched = []
+
+    if mobile:
+        tail = re.sub(r'\D', '', mobile)[-11:]
+        if tail:
+            qs = base_qs.filter(Q(mobile__contains=tail) | Q(tel__contains=tail))
+            if bound_lead_ids:
+                qs = qs.exclude(id__in=bound_lead_ids)
+            matched = list(qs[:20])
+            if matched:
+                match_by = 'mobile'
+
+    if not match_by:
+        if name and corp_name:
+            qs = base_qs.filter(name__icontains=name, company__icontains=corp_name)
+            if bound_lead_ids:
+                qs = qs.exclude(id__in=bound_lead_ids)
+            matched = list(qs[:20])
+            if matched:
+                match_by = 'name+company'
+
+    if not match_by and mobile:
+        # 仅手机已试过没中，这里跳过
+        pass
+
+    if not match_by and name and not corp_name:
+        qs = base_qs.filter(name__icontains=name)
+        if bound_lead_ids:
+            qs = qs.exclude(id__in=bound_lead_ids)
+        matched = list(qs[:20])
+        if matched:
+            match_by = 'name'
+
+    return matched, match_by
+
+
 def api_match_lead(request):
     """
-    根据当前聊天的外部联系人匹配 CRM 线索。
-    流程：external_userid → 调企微 API 拿姓名/手机 → 在权限范围内查 crm_leads。
-    匹配策略：手机号优先 → 姓名+公司兜底。
-    权限：与列表一致（普通员工/主管不能越权看；超管全开）。
+    三模块匹配视图（个人 & 群通用入口）。
+    GET 参数：
+      userid        - 打开侧边栏的销售企微 userid（必填）
+      external_userid - 个人聊天时的外部联系人 userid（个人场景）
+      chat_id       - 群聊时的 chat_id（群场景）
+    返回：
+      session_id, session_type, contact
+      m1_leads  - 已绑定线索
+      m2_leads  - 未绑定但匹配（仅个人）
+      match_by  - 匹配依据描述
     """
-    import re
     userid = request.GET.get('userid', '')
     external_userid = request.GET.get('external_userid', '')
+    chat_id = request.GET.get('chat_id', '')
 
-    if not userid or not external_userid:
-        return JsonResponse({'error': '缺少参数'}, status=400)
+    if not userid:
+        return JsonResponse({'error': '缺少 userid 参数'}, status=400)
+    if not external_userid and not chat_id:
+        return JsonResponse({'error': '缺少 external_userid 或 chat_id'}, status=400)
 
     is_super, visible_crm_ids, own_crm_id, is_manager, err = _resolve_visible_crm_ids(userid)
     if err:
         return JsonResponse({'error': err}, status=403)
 
-    # 调企微拿外部联系人信息
-    try:
-        from .services import fetch_external_contact
-        ext = fetch_external_contact(external_userid)
-    except Exception as e:
-        return JsonResponse({'error': f'获取外部联系人失败: {e}'}, status=500)
-
-    print(f"\n[match] 员工 [{userid}] 当前会话外部联系人 [{external_userid}] 原始返回:")
-    print(json.dumps(ext, ensure_ascii=False, indent=2))
-
-    if ext.get('errcode') != 0:
-        return JsonResponse({'error': f"企微接口错误: {ext.get('errmsg', ext)}"}, status=500)
-
-    info = ext.get('external_contact', {}) or {}
-    contact_name = info.get('name', '') or ''
-    # 手机号在 follow_user[].remark_mobiles 或 external_profile，企微不直接给，先尝试 unionid 留空
-    # 真实手机号通常需要客户主动提供，先从 external_profile 里拿
-    contact_corp = info.get('corp_name', '') or ''  # 客户所在公司（如果是企业微信用户）
-
-    # 尝试多个可能的手机字段
-    contact_mobile = ''
-    profile = info.get('external_profile') or {}
-    for ext_attr in profile.get('external_attr', []) or []:
-        if ext_attr.get('type') == 0 and '电话' in ext_attr.get('name', ''):
-            contact_mobile = (ext_attr.get('text') or {}).get('value', '')
-            break
-
-    # 可见线索范围
+    # 可见线索范围（M2 用）
     if is_super or visible_crm_ids is None:
         base_qs = CrmLeads.objects.using('crm').filter(is_deleted=0)
     else:
@@ -388,84 +565,130 @@ def api_match_lead(request):
             owner_primary__in=visible_crm_ids, is_deleted=0
         )
 
-    # 1. 手机号精确匹配（去掉空格、+86 等）
-    matched_in_visible = []  # 权限范围内匹配到的
-    total_in_crm = 0  # 全库匹配到的总数（不限权限）
-    match_by = ''
+    # ── 个人会话 ──────────────────────────────
+    if external_userid:
+        # 获取外部联系人信息
+        try:
+            ext_data = fetch_external_contact(external_userid)
+        except Exception as e:
+            return JsonResponse({'error': f'获取外部联系人失败: {e}'}, status=500)
 
-    if contact_mobile:
-        mobile_clean = re.sub(r'\D', '', contact_mobile)
-        if mobile_clean:
-            tail = mobile_clean[-11:]  # 末 11 位（处理 +86 等前缀）
-            # 全库查（不限权限）
-            all_qs = CrmLeads.objects.using('crm').filter(
-                Q(mobile__contains=tail) | Q(tel__contains=tail), is_deleted=0
-            )
-            total_in_crm = all_qs.count()
-            # 权限范围内查
-            qs = base_qs.filter(Q(mobile__contains=tail) | Q(tel__contains=tail))
-            matched_in_visible = list(qs[:20])
-            if matched_in_visible or total_in_crm:
-                match_by = 'mobile'
+        print(f"\n[match] 员工 [{userid}] 当前会话外部联系人 [{external_userid}] 原始返回:")
+        print(json.dumps(ext_data, ensure_ascii=False, indent=2))
 
-    # 2. 兜底：姓名 + 公司模糊匹配
-    if not match_by and contact_name:
-        # 全库查
-        all_qs = CrmLeads.objects.using('crm').filter(name__icontains=contact_name, is_deleted=0)
-        if contact_corp:
-            all_qs = all_qs.filter(company__icontains=contact_corp) | CrmLeads.objects.using('crm').filter(
-                name__icontains=contact_name, company__isnull=True, is_deleted=0
-            )
-        total_in_crm = all_qs.count()
-        # 权限范围内查
-        qs = base_qs.filter(name__icontains=contact_name)
-        if contact_corp:
-            qs = qs.filter(company__icontains=contact_corp) | base_qs.filter(
-                name__icontains=contact_name, company__isnull=True
-            )
-        matched_in_visible = list(qs[:20])
-        if matched_in_visible or total_in_crm:
-            match_by = 'name'
+        if ext_data.get('errcode') != 0:
+            return JsonResponse({'error': f"企微接口错误: {ext_data.get('errmsg', ext_data)}"}, status=500)
 
-    # 序列化（与列表用同样的字段）
-    if matched_in_visible:
-        ids = [l.id for l in matched_in_visible]
-        leads = list(
-            CrmLeads.objects.using('crm').filter(id__in=ids).values(
-                'id', 'name', 'mobile', 'tel', 'company',
-                'leads_stage', 'leads_stage_label',
-                'customer_stage', 'customer_stage_label',
-                'biz_status_label', 'life_status_label',
-                'last_follow_time', 'create_time', 'row_updated_at',
-                'owner_primary',
-            )
+        contact_info = _extract_contact_info(ext_data, userid)
+
+        # Upsert 会话记录
+        session = _upsert_session(
+            session_type='contact',
+            external_id=external_userid,
+            opener_userid=userid,
+            name=contact_info['name'],
+            contact_type=contact_info['type'],
+            corp_name=contact_info['corp_name'],
+            mobile=contact_info['mobile'],
+            raw_info=ext_data,
         )
-        owner_ids = {l['owner_primary'] for l in leads if l.get('owner_primary')}
-        owner_map = {}
-        if owner_ids:
-            owner_map = dict(
-                UserInfo.objects.filter(crm_user_id__in=owner_ids)
-                .values_list('crm_user_id', 'name')
-            )
-        for lead in leads:
-            lead['owner_name'] = owner_map.get(lead.get('owner_primary'), '') or ''
-            for k, v in lead.items():
-                if hasattr(v, 'isoformat'):
-                    lead[k] = v.isoformat()
-    else:
-        leads = []
 
-    return JsonResponse({
-        'contact': {
-            'name': contact_name,
-            'mobile': contact_mobile,
-            'corp_name': contact_corp,
-            'external_userid': external_userid,
-        },
-        'match_by': match_by,
-        'total_in_crm': total_in_crm,  # 全库匹配数（不限权限）
-        'leads': leads,
-    })
+        # M1：已绑定线索
+        bound_ids_qs = LeadSessionBind.objects.filter(session=session).values_list('lead_id', flat=True)
+        bound_lead_ids = set(bound_ids_qs)
+        m1_leads = _serialize_leads(
+            CrmLeads.objects.using('crm').filter(id__in=bound_lead_ids, is_deleted=0)
+        ) if bound_lead_ids else []
+
+        # M2：未绑定但匹配（权限范围内，排除已绑定）
+        m2_objs, match_by = _match_leads_by_contact(external_userid, contact_info, base_qs, bound_lead_ids)
+        m2_leads = _serialize_leads(m2_objs)
+
+        return JsonResponse({
+            'session_id': session.id,
+            'session_type': 'contact',
+            'contact': {
+                'name': contact_info['name'],
+                'type': contact_info['type'],
+                'mobile': contact_info['mobile'],
+                'corp_name': contact_info['corp_name'],
+                'external_userid': external_userid,
+            },
+            'm1_leads': m1_leads,
+            'm2_leads': m2_leads,
+            'match_by': match_by,
+        })
+
+    # ── 群会话 ────────────────────────────────
+    else:
+        try:
+            group_data = fetch_groupchat(chat_id)
+        except Exception as e:
+            return JsonResponse({'error': f'获取群信息失败: {e}'}, status=500)
+
+        print(f"\n[群聊] 员工 [{userid}] 查看群 [{chat_id}]:")
+        print(json.dumps(group_data, ensure_ascii=False, indent=2))
+
+        if group_data.get('errcode') == 92002:
+            return JsonResponse({'error': '该群由外部企业创建，无法获取群信息'}, status=403)
+        if group_data.get('errcode') != 0:
+            return JsonResponse({'error': f"企微接口错误: {group_data.get('errmsg', group_data)}"}, status=500)
+
+        gc = group_data.get('group_chat', {}) or {}
+        group_name = gc.get('name', '') or ''
+
+        # Upsert 群 session
+        session = _upsert_session(
+            session_type='group',
+            external_id=chat_id,
+            opener_userid=userid,
+            name=group_name,
+            raw_info=group_data,
+        )
+
+        # 群里所有 type=2 的外部联系人 external_userid
+        member_list = gc.get('member_list', []) or []
+        ext_member_ids = [m['userid'] for m in member_list if m.get('type') == 2 and m.get('userid')]
+
+        # M1_direct：直接绑在群 session 上的线索（手工绑定产生）
+        direct_bound_ids = set(
+            LeadSessionBind.objects.filter(session=session).values_list('lead_id', flat=True)
+        )
+
+        # M1_via_contact：群成员的 contact session 上已绑定的线索
+        via_contact_lead_ids = set()
+        if ext_member_ids:
+            member_sessions = QwSession.objects.filter(
+                session_type='contact',
+                external_id__in=ext_member_ids,
+            )
+            via_contact_lead_ids = set(
+                LeadSessionBind.objects.filter(session__in=member_sessions)
+                .values_list('lead_id', flat=True)
+            )
+
+        all_m1_ids = direct_bound_ids | via_contact_lead_ids
+        m1_leads = _serialize_leads(
+            CrmLeads.objects.using('crm').filter(id__in=all_m1_ids, is_deleted=0)
+        ) if all_m1_ids else []
+
+        # 群 M2：不做（群本身没有联系人信息做模糊匹配）
+        return JsonResponse({
+            'session_id': session.id,
+            'session_type': 'group',
+            'contact': {
+                'name': group_name,
+                'type': 0,
+                'mobile': '',
+                'corp_name': '',
+                'chat_id': chat_id,
+                'member_count': len(member_list),
+                'ext_member_count': len(ext_member_ids),
+            },
+            'm1_leads': m1_leads,
+            'm2_leads': [],
+            'match_by': 'group_member_sessions' if via_contact_lead_ids else '',
+        })
 
 
 def api_users(request):
@@ -514,3 +737,112 @@ def api_groupchat(request):
     if data.get("errcode") == 92002:
         return JsonResponse({"error": "该群由外部企业创建，无法获取群信息"})
     return JsonResponse(data)
+
+
+@csrf_exempt
+def api_lead_bind(request):
+    """
+    POST /api/lead/bind
+    将线索绑定到会话（或解除绑定）。
+    Body JSON: { session_id, lead_id, userid, action: "bind"|"unbind" }
+    权限：只允许绑定自己负责的线索（owner_primary == 自己的 crm_user_id），超管不限。
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'method not allowed'}, status=405)
+
+    try:
+        body = json.loads(request.body)
+    except Exception:
+        return JsonResponse({'error': '无效的 JSON'}, status=400)
+
+    session_id = body.get('session_id')
+    lead_id = body.get('lead_id')
+    userid = body.get('userid', '')
+    action = body.get('action', 'bind')
+
+    if not session_id or not lead_id or not userid:
+        return JsonResponse({'error': '缺少参数'}, status=400)
+
+    # 取会话
+    try:
+        session = QwSession.objects.get(id=session_id)
+    except QwSession.DoesNotExist:
+        return JsonResponse({'error': '会话不存在'}, status=404)
+
+    # 取线索（用 crm 库）
+    try:
+        lead = CrmLeads.objects.using('crm').get(id=lead_id, is_deleted=0)
+    except CrmLeads.DoesNotExist:
+        return JsonResponse({'error': '线索不存在'}, status=404)
+
+    # 权限校验：只能绑定自己负责的线索（超管不限）
+    if userid not in SUPER_USERS:
+        try:
+            ui = UserInfo.objects.get(qw_id=userid)
+        except UserInfo.DoesNotExist:
+            return JsonResponse({'error': '未找到该用户'}, status=403)
+        if lead.owner_primary != ui.crm_user_id:
+            return JsonResponse({'error': '只能绑定自己负责的线索'}, status=403)
+
+    if action == 'unbind':
+        LeadSessionBind.objects.filter(session=session, lead_id=lead_id).delete()
+        return JsonResponse({'ok': True, 'action': 'unbind'})
+
+    # bind（幂等）
+    bind_type = body.get('bind_type', 'manual')
+    obj, created = LeadSessionBind.objects.get_or_create(
+        session=session,
+        lead_id=lead_id,
+        defaults={
+            'lead_crm_id': lead.crm_id or '',
+            'bind_type': bind_type,
+            'bound_by': userid,
+        }
+    )
+    return JsonResponse({'ok': True, 'action': 'bind', 'created': created})
+
+
+def api_lead_bindable(request):
+    """
+    GET /api/lead/bindable?userid=&session_id=
+    返回该销售自己负责的线索（用于 M3 下拉），排除已绑定到本会话的。
+    """
+    userid = request.GET.get('userid', '')
+    session_id = request.GET.get('session_id', '')
+
+    if not userid:
+        return JsonResponse({'error': '缺少 userid'}, status=400)
+
+    # 只取自己负责的（crm_user_id），超管也只看自己（避免下拉过长）
+    try:
+        ui = UserInfo.objects.get(qw_id=userid)
+        own_crm_id = ui.crm_user_id or ''
+    except UserInfo.DoesNotExist:
+        return JsonResponse({'error': '未找到该用户'}, status=404)
+
+    if not own_crm_id:
+        return JsonResponse({'leads': [], 'total': 0})
+
+    qs = CrmLeads.objects.using('crm').filter(owner_primary=own_crm_id, is_deleted=0)
+
+    # 排除已绑定到本会话的
+    if session_id:
+        try:
+            session = QwSession.objects.get(id=session_id)
+            already_bound = set(
+                LeadSessionBind.objects.filter(session=session).values_list('lead_id', flat=True)
+            )
+            if already_bound:
+                qs = qs.exclude(id__in=already_bound)
+        except QwSession.DoesNotExist:
+            pass
+
+    leads = list(qs.order_by('-row_updated_at')[:100].values(
+        'id', 'name', 'company', 'mobile', 'biz_status_label', 'owner_primary',
+    ))
+    for lead in leads:
+        for k, v in lead.items():
+            if hasattr(v, 'isoformat'):
+                lead[k] = v.isoformat()
+
+    return JsonResponse({'leads': leads, 'total': len(leads)})
