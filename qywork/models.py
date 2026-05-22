@@ -193,3 +193,78 @@ class SyncWatermark(models.Model):
     class Meta:
         managed = False
         db_table = 'sync_watermark'
+
+
+class QwSession(models.Model):
+    """企微会话表：销售打开侧边栏看到的会话（个人客户 / 自建群）"""
+    SESSION_CONTACT = 'contact'
+    SESSION_GROUP = 'group'
+    SESSION_TYPE_CHOICES = [
+        (SESSION_CONTACT, '外部联系人'),
+        (SESSION_GROUP, '群聊'),
+    ]
+
+    id = models.BigAutoField(primary_key=True)
+    session_type = models.CharField(max_length=16, choices=SESSION_TYPE_CHOICES)
+    external_id = models.CharField(max_length=128, verbose_name='会话外部唯一ID（external_userid 或 chat_id）')
+
+    name = models.CharField(max_length=255, blank=True, null=True, verbose_name='联系人姓名/群名')
+    contact_type = models.SmallIntegerField(blank=True, null=True, verbose_name='1=微信用户 2=企微用户；群留空')
+    corp_name = models.CharField(max_length=255, blank=True, null=True, verbose_name='对方公司名（仅企微客户）')
+    avatar = models.CharField(max_length=512, blank=True, null=True)
+    gender = models.SmallIntegerField(blank=True, null=True)
+    group_owner = models.CharField(max_length=64, blank=True, null=True, verbose_name='群主企微 userid（仅群）')
+
+    raw_info = models.JSONField(blank=True, null=True, verbose_name='企微接口原始返回快照')
+
+    first_opened_by = models.CharField(max_length=64, blank=True, null=True, verbose_name='首次打开者企微 userid')
+    last_opened_by = models.CharField(max_length=64, blank=True, null=True, verbose_name='最近打开者企微 userid')
+    first_opened_at = models.DateTimeField(auto_now_add=True)
+    last_opened_at = models.DateTimeField(auto_now=True)
+    open_count = models.IntegerField(default=1)
+
+    class Meta:
+        managed = True
+        db_table = 'qw_session'
+        unique_together = [('session_type', 'external_id')]
+        indexes = [
+            models.Index(fields=['session_type', 'external_id']),
+            models.Index(fields=['last_opened_at']),
+        ]
+        verbose_name = '企微会话'
+        verbose_name_plural = '企微会话'
+
+
+class LeadSessionBind(models.Model):
+    """线索 ↔ 会话 多对多绑定。lead_id 不设 FK（crm_leads 由外部 sync 维护）。"""
+    BIND_AUTO_MOBILE = 'auto_mobile'
+    BIND_AUTO_NAME = 'auto_name'
+    BIND_MANUAL = 'manual'
+    BIND_TYPE_CHOICES = [
+        (BIND_AUTO_MOBILE, '手机号自动匹配'),
+        (BIND_AUTO_NAME, '姓名自动匹配'),
+        (BIND_MANUAL, '人工绑定'),
+    ]
+
+    id = models.BigAutoField(primary_key=True)
+    session = models.ForeignKey(QwSession, on_delete=models.CASCADE, related_name='binds', db_column='session_id')
+    lead_id = models.BigIntegerField(verbose_name='crm_leads.id（无 FK，sync 重建时靠 lead_crm_id 反查）')
+    lead_crm_id = models.CharField(max_length=64, blank=True, null=True, verbose_name='冗余 crm_leads.crm_id 用于 sync 后反查')
+
+    bind_type = models.CharField(max_length=16, choices=BIND_TYPE_CHOICES, default=BIND_MANUAL)
+    bound_by = models.CharField(max_length=64, blank=True, null=True, verbose_name='操作者企微 userid')
+    note = models.CharField(max_length=255, blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        managed = True
+        db_table = 'lead_session_bind'
+        unique_together = [('session', 'lead_id')]
+        indexes = [
+            models.Index(fields=['lead_id']),
+            models.Index(fields=['lead_crm_id']),
+        ]
+        verbose_name = '线索-会话绑定'
+        verbose_name_plural = '线索-会话绑定'
