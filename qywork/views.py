@@ -43,6 +43,17 @@ def verify_domain(request):
 
 
 def index(request):
+    import traceback
+    try:
+        return _index_impl(request)
+    except Exception as e:
+        tb = traceback.format_exc()
+        print(f"\n[index ERROR] {e}\n{tb}")
+        from django.http import HttpResponse
+        return HttpResponse(f"<pre>500 Error:\n{tb}</pre>", status=500)
+
+
+def _index_impl(request):
     code = request.GET.get('code')
     userid = request.GET.get('userid')
     debug_mode = getattr(settings, 'DEBUG', False)
